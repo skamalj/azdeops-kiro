@@ -1,7 +1,13 @@
 {
   "mcpServers": {
     "azure-devops-core": {
-      "url": "http://localhost:3001/sse"
+      "command": "node",
+      "args": ["extension/mcp-server/index.js"],
+      "env": {
+        "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",
+        "AZURE_DEVOPS_PROJECT": "${AZURE_DEVOPS_PROJECT}",
+        "AZURE_DEVOPS_PAT": "${AZURE_DEVOPS_PAT}"
+      }
     }
   }
 }
