@@ -8,6 +8,7 @@ import { AzureDevOpsExplorerProvider } from './ui/providers/AzureDevOpsExplorerP
 import { ConnectionProvider } from './ui/providers/ConnectionProvider';
 import { StatusBarManager } from './ui/managers/StatusBarManager';
 import { CommandManager } from './ui/managers/CommandManager';
+import { MCPServerService } from './services/MCPServerService';
 
 
 let authService: AuthenticationService;
@@ -19,6 +20,7 @@ let explorerProvider: AzureDevOpsExplorerProvider;
 let connectionProvider: ConnectionProvider;
 let statusBarManager: StatusBarManager;
 let commandManager: CommandManager;
+let mcpServerService: MCPServerService;
 
 
 // Global refresh function
@@ -60,6 +62,10 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('StatusBarManager created');
         commandManager = new CommandManager(authService, apiClient, explorerProvider, updateConnectionContext);
         console.log('CommandManager created');
+
+        // Initialize MCP Server Service
+        mcpServerService = new MCPServerService();
+        console.log('MCPServerService created');
 
     // Register tree data providers
     console.log('Registering tree data providers...');
@@ -351,10 +357,21 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('Setting up auto-sync...');
         setupAutoSync(context);
 
+        // Start MCP Server
+        console.log('Starting MCP Server...');
+        try {
+            await mcpServerService.startMCPServer();
+            console.log('MCP Server started successfully');
+        } catch (error) {
+            console.error('Failed to start MCP Server:', error);
+            // Don't fail extension activation if MCP server fails
+        }
+
         // Add all disposables to context
         console.log(`Registering ${commands.length} commands with context...`);
         context.subscriptions.push(...commands);
         context.subscriptions.push(statusBarManager);
+        context.subscriptions.push(mcpServerService);
         
         console.log('=== Azure DevOps extension activation completed successfully ===');
         

@@ -245,8 +245,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run compile && npm run bundle-mcp",
     "compile": "tsc -p ./",
+    "bundle-mcp": "npm run install-mcp-deps && npm run copy-mcp-server",
+    "install-mcp-deps": "cd ../mcp-server && npm install",
+    "copy-mcp-server": "if not exist mcp-server mkdir mcp-server && xcopy /E /Y ..\\mcp-server\\* mcp-server\\",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",

@@ -3,7 +3,7 @@
     "azure-devops-core": {
       "command": "node",
       "args": [
-        "../mcp-server/index.js"
+        "../extension/mcp-server/index.js"
       ],
       "env": {
         "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",
