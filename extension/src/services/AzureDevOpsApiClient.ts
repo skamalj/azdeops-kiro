@@ -95,6 +95,13 @@ export class AzureDevOpsApiClient implements AzureDevOpsClient {
   }
 
   /**
+   * Get the base URL for API calls
+   */
+  getBaseUrl(): string {
+    return `${this.baseUrl}/${this.projectName}`;
+  }
+
+  /**
    * Get current authentication status
    */
   getAuthStatus(): AuthResult | null {
@@ -502,6 +509,7 @@ export class AzureDevOpsApiClient implements AzureDevOpsClient {
       tags: fields['System.Tags'] ? fields['System.Tags'].split(';').map((tag: string) => tag.trim()) : [],
       createdDate: new Date(fields['System.CreatedDate']),
       changedDate: new Date(fields['System.ChangedDate']),
+      projectId: fields['System.TeamProject'] || this.projectName,
       fields: fields
     };
   }

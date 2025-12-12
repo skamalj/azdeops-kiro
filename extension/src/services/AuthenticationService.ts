@@ -186,6 +186,22 @@ export class AuthenticationService {
   }
 
   /**
+   * Get organization URL from current credentials
+   */
+  getOrganizationUrl(): string {
+    const credentials = this.getCurrentCredentials();
+    return credentials?.organizationUrl || '';
+  }
+
+  /**
+   * Get personal access token from current credentials
+   */
+  getPersonalAccessToken(): string {
+    const credentials = this.getCurrentCredentials();
+    return credentials?.token || '';
+  }
+
+  /**
    * Get current credentials from settings or stored auth
    */
   getCurrentCredentials(): AuthCredentials | null {

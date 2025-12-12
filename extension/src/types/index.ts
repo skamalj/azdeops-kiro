@@ -2,7 +2,7 @@
 
 export interface WorkItem {
   id: number;
-  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Info';
+  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info';
   title: string;
   description: string;
   state: string;
@@ -13,6 +13,7 @@ export interface WorkItem {
   tags?: string[];
   createdDate: Date;
   changedDate: Date;
+  projectId: string;
   fields?: Record<string, any>;
 }
 
@@ -131,4 +132,167 @@ export interface CompletionResult {
   error?: string;
 }
 
-export type WorkItemType = 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Info';
+export type WorkItemType = 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info';
+
+// Project-related interfaces
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  state: 'wellFormed' | 'createPending' | 'deleting' | 'new';
+  visibility: 'private' | 'public';
+  capabilities: ProjectCapabilities;
+  processTemplate: ProcessTemplate;
+}
+
+export interface ProjectCapabilities {
+  versioncontrol: { sourceControlType: 'Git' | 'Tfvc' };
+  processTemplate: { templateTypeId: string };
+}
+
+export interface ProcessTemplate {
+  id: string;
+  name: string;
+  workItemTypes: WorkItemTypeDefinition[];
+  states: StateDefinition[];
+}
+
+export interface WorkItemTypeDefinition {
+  name: string;
+  referenceName: string;
+  description: string;
+  color: string;
+  icon: string;
+  states: string[];
+  fields: FieldDefinition[];
+}
+
+export interface StateDefinition {
+  name: string;
+  color: string;
+  category: 'Proposed' | 'InProgress' | 'Resolved' | 'Completed' | 'Removed';
+}
+
+export interface FieldDefinition {
+  referenceName: string;
+  name: string;
+  type: 'String' | 'Integer' | 'Double' | 'DateTime' | 'Boolean' | 'Identity' | 'PicklistString';
+  required: boolean;
+  readOnly: boolean;
+  defaultValue?: any;
+}
+
+export interface ProjectContext {
+  project: Project;
+  workItemTypes: WorkItemTypeDefinition[];
+  permissions: ProjectPermissions;
+}
+
+export interface ProjectPermissions {
+  canCreateWorkItems: boolean;
+  canEditWorkItems: boolean;
+  canDeleteWorkItems: boolean;
+  canManageTestPlans: boolean;
+  canExecuteTests: boolean;
+  canViewReports: boolean;
+}
+
+// Test case related interfaces
+export interface TestCase extends WorkItem {
+  type: 'Test Case';
+  steps: TestStep[];
+  expectedResult: string;
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  testPlanId?: number;
+  testSuiteId?: number;
+  automationStatus: 'Automated' | 'Not Automated' | 'Planned';
+}
+
+export interface TestStep {
+  stepNumber: number;
+  action: string;
+  expectedResult: string;
+}
+
+export interface TestResult {
+  outcome: 'Passed' | 'Failed' | 'Blocked' | 'Not Applicable';
+  comment?: string;
+  executedBy: string;
+  executedDate: Date;
+}
+
+export interface TestPlan {
+  id: number;
+  name: string;
+  description: string;
+  projectId: string;
+  iterationPath: string;
+  areaPath: string;
+  state: 'Inactive' | 'Active' | 'Completed';
+  testSuites: TestSuite[];
+  createdDate: Date;
+  changedDate: Date;
+}
+
+export interface TestSuite {
+  id: number;
+  name: string;
+  testPlanId: number;
+  parentSuiteId?: number;
+  testCases: TestCase[];
+  childSuites: TestSuite[];
+}
+
+export interface TestCaseFields extends WorkItemFields {
+  steps: TestStep[];
+  expectedResult: string;
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  automationStatus: 'Automated' | 'Not Automated' | 'Planned';
+}
+
+export interface TestPlanFields {
+  name: string;
+  description: string;
+  iterationPath: string;
+  areaPath: string;
+}
+
+// Scrum dashboard interfaces
+export interface ScrumMetrics {
+  sprintProgress: SprintProgress;
+  teamVelocity: TeamVelocity;
+  burndownData: BurndownData;
+  workItemDistribution: WorkItemDistribution;
+}
+
+export interface SprintProgress {
+  totalStoryPoints: number;
+  completedStoryPoints: number;
+  remainingStoryPoints: number;
+  totalTasks: number;
+  completedTasks: number;
+  remainingTasks: number;
+  daysRemaining: number;
+  completionPercentage: number;
+}
+
+export interface TeamVelocity {
+  currentSprint: number;
+  lastThreeSprints: number[];
+  averageVelocity: number;
+  trend: 'increasing' | 'decreasing' | 'stable';
+}
+
+export interface BurndownData {
+  dates: string[];
+  idealBurndown: number[];
+  actualBurndown: number[];
+  remainingWork: number[];
+}
+
+export interface WorkItemDistribution {
+  byType: { [key: string]: number };
+  byState: { [key: string]: number };
+  byAssignee: { [key: string]: number };
+}

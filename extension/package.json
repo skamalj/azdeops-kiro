@@ -94,6 +94,36 @@
         "command": "azureDevOps.test",
         "title": "Test Extension",
         "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.selectProject",
+        "title": "Select Project",
+        "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.createTestCase",
+        "title": "Create Test Case",
+        "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.createTestPlan",
+        "title": "Create Test Plan",
+        "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.executeTestCase",
+        "title": "Execute Test Case",
+        "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.showScrumDashboard",
+        "title": "Show Scrum Dashboard",
+        "category": "Azure DevOps"
+      },
+      {
+        "command": "azureDevOps.selectProjectFromTree",
+        "title": "Select Project",
+        "category": "Azure DevOps"
       }
     ],
     "views": {
@@ -125,6 +155,33 @@
           "group": "navigation"
         }
       ],
+      "view/item/context": [
+        {
+          "command": "azureDevOps.selectProjectFromTree",
+          "when": "view == azureDevOpsExplorer && viewItem == project",
+          "group": "inline"
+        },
+        {
+          "command": "azureDevOps.executeTestCase",
+          "when": "view == azureDevOpsExplorer && viewItem == testcase",
+          "group": "inline"
+        },
+        {
+          "command": "azureDevOps.startTask",
+          "when": "view == azureDevOpsExplorer && viewItem == task",
+          "group": "1_actions"
+        },
+        {
+          "command": "azureDevOps.editTask",
+          "when": "view == azureDevOpsExplorer && viewItem == task",
+          "group": "1_actions"
+        },
+        {
+          "command": "azureDevOps.viewTask",
+          "when": "view == azureDevOpsExplorer && (viewItem == task || viewItem == userstory)",
+          "group": "2_view"
+        }
+      ],
       "commandPalette": [
         {
           "command": "azureDevOps.connect",
@@ -141,6 +198,10 @@
         {
           "command": "azureDevOps.completeTask",
           "when": "azureDevOps.connected && azureDevOps.hasActiveTask"
+        },
+        {
+          "command": "azureDevOps.selectProjectFromTree",
+          "when": "false"
         }
       ]
     },

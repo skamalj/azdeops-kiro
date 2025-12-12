@@ -11,20 +11,38 @@ Both implementations provide full CRUD operations on user stories and tasks, sup
 
 ## Current Implementation Status
 
-✅ **COMPLETED**: Core extension functionality with VS Code integration
-✅ **COMPLETED**: Authentication system with PAT support and settings integration  
-✅ **COMPLETED**: Azure DevOps API client with rate limiting and error handling
-✅ **COMPLETED**: Work item management (create, read, update user stories and tasks)
-✅ **COMPLETED**: Tree view with hierarchical display of user stories and tasks
-✅ **COMPLETED**: Command palette integration with all major commands
-✅ **COMPLETED**: Task creation with optional parent story linking
-✅ **COMPLETED**: Independent task support (tasks without parent stories)
-✅ **COMPLETED**: Comprehensive error handling and user feedback
-✅ **COMPLETED**: Settings-based configuration with VS Code settings UI
+### VS Code Extension ✅ COMPLETED
+✅ **Authentication System**: PAT support with VS Code settings integration  
+✅ **Azure DevOps API Client**: Rate limiting, error handling, and retry logic
+✅ **Work Item Management**: Complete CRUD operations for user stories and tasks
+✅ **Tree View Interface**: Hierarchical display with parent-child relationships
+✅ **Command Palette Integration**: All major commands accessible via Ctrl+Shift+P
+✅ **Independent Task Support**: Tasks without parent stories displayed at root level
+✅ **Comprehensive Error Handling**: User-friendly messages and retry mechanisms
+✅ **Settings Integration**: Configuration via VS Code settings UI
+✅ **Testing**: 13 property-based tests with 100+ iterations each, all passing
+✅ **Distribution**: VSIX package ready for VS Code Marketplace or manual installation
 
-🚧 **FUTURE ENHANCEMENTS**: Task intelligence engine for automatic completion
-🚧 **FUTURE ENHANCEMENTS**: Offline synchronization and caching
-🚧 **FUTURE ENHANCEMENTS**: Advanced Scrum methodology features
+### Kiro Power ✅ COMPLETED
+✅ **MCP Server Implementation**: Complete azure-devops-core server with 5 tools
+✅ **Natural Language Interface**: Conversational work item management
+✅ **Same Feature Set**: Identical functionality to VS Code extension via MCP tools
+✅ **Environment Configuration**: Secure credential management via environment variables
+✅ **Type System**: Shared TypeScript types between extension and power
+✅ **Documentation**: Complete POWER.md with usage examples and configuration
+✅ **Steering Files**: Getting started and advanced usage guides
+✅ **Build System**: TypeScript compilation with proper module resolution
+✅ **Distribution**: Ready for GitHub distribution and Kiro Powers installation
+
+### New Requirements (Both Implementations)
+🆕 **Test Case Management**: Create, view, and execute test cases with test plan organization
+🆕 **Multi-Project Support**: Project selector and context switching across organization projects
+🆕 **Project-Specific Configuration**: Adaptive UI based on project process templates and permissions
+
+### Future Enhancements (Both Implementations)
+🚧 **Task Intelligence Engine**: Automatic task analysis and completion
+🚧 **Offline Synchronization**: Local caching and offline operation queuing
+🚧 **Advanced Scrum Features**: Sprint management and workflow automation
 
 ## Glossary
 
@@ -36,6 +54,10 @@ Both implementations provide full CRUD operations on user stories and tasks, sup
 - **CRUD Operations**: Create, Read, Update, Delete operations on data
 - **Assignment**: The process of linking a work item to a specific team member
 - **Azure DevOps API**: The REST API provided by Microsoft for programmatic access to Azure DevOps
+- **Test Case**: A work item type in Azure DevOps that defines specific test scenarios and expected outcomes
+- **Test Plan**: A collection of test cases organized for testing a specific feature or release
+- **Test Suite**: A grouping mechanism within test plans to organize related test cases
+- **Project Selector**: A UI component that allows users to switch between different Azure DevOps projects
 
 ## Requirements
 
@@ -217,3 +239,51 @@ Both implementations provide full CRUD operations on user stories and tasks, sup
 3. WHEN Azure DevOps services are unavailable, THE Azure DevOps Integration SHALL display service status and estimated recovery time
 4. WHEN cached data becomes stale, THE Azure DevOps Integration SHALL refresh data automatically when connectivity allows
 5. WHEN critical errors occur, THE Azure DevOps Integration SHALL log detailed error information for troubleshooting while displaying user-friendly messages
+
+### Requirement 13
+
+**User Story:** As a QA engineer, I want to manage test cases in Azure DevOps through Kiro, so that I can create and execute tests without leaving my development environment.
+
+#### Acceptance Criteria
+
+1. WHEN a user creates a new test case, THE Azure DevOps Integration SHALL validate all required test case fields are populated including title, steps, and expected results
+2. WHEN a test case is created with valid data, THE Azure DevOps Integration SHALL submit the test case to Azure DevOps and return the created test case ID
+3. WHEN test cases are displayed, THE Azure DevOps Integration SHALL show test case ID, title, state, priority, and associated test plan in the tree view
+4. WHEN a user executes a test case, THE Azure DevOps Integration SHALL allow updating the test result status (Passed, Failed, Blocked) with comments
+5. WHEN test cases are linked to user stories or tasks, THE Azure DevOps Integration SHALL display and maintain these relationships in the hierarchical view
+
+### Requirement 14
+
+**User Story:** As a test manager, I want to organize test cases into test plans and suites through Kiro, so that I can structure testing activities effectively.
+
+#### Acceptance Criteria
+
+1. WHEN a user creates a test plan, THE Azure DevOps Integration SHALL validate required fields including name, description, and iteration path
+2. WHEN test suites are created within a test plan, THE Azure DevOps Integration SHALL organize test cases hierarchically under appropriate suites
+3. WHEN test cases are added to test suites, THE Azure DevOps Integration SHALL maintain the association and display the hierarchy in the tree view
+4. WHEN test plans are filtered or searched, THE Azure DevOps Integration SHALL apply filters server-side and return matching test plans with their associated test cases
+5. WHEN test execution is tracked, THE Azure DevOps Integration SHALL display test plan progress including passed, failed, and blocked test counts
+
+### Requirement 15
+
+**User Story:** As a developer working across multiple projects, I want to switch between different Azure DevOps projects in Kiro, so that I can manage work items across my organization efficiently.
+
+#### Acceptance Criteria
+
+1. WHEN a user accesses the project selector, THE Azure DevOps Integration SHALL display all accessible projects within the connected organization
+2. WHEN a user selects a different project, THE Azure DevOps Integration SHALL switch context and refresh all work item views to show data from the selected project
+3. WHEN switching projects, THE Azure DevOps Integration SHALL preserve authentication state and not require re-authentication
+4. WHEN project switching fails due to permissions, THE Azure DevOps Integration SHALL display clear error messages and maintain the current project context
+5. WHEN the current project is displayed, THE Azure DevOps Integration SHALL show the project name in the status bar and tree view header
+
+### Requirement 16
+
+**User Story:** As a team member, I want to see project-specific configuration and settings, so that I can work with project-specific processes and field configurations.
+
+#### Acceptance Criteria
+
+1. WHEN switching to a different project, THE Azure DevOps Integration SHALL load and apply project-specific work item types and states
+2. WHEN creating work items in different projects, THE Azure DevOps Integration SHALL validate fields against the specific project's process template
+3. WHEN displaying work items, THE Azure DevOps Integration SHALL show project-specific custom fields and their values
+4. WHEN project templates differ, THE Azure DevOps Integration SHALL adapt the UI to show available states, transitions, and field options for each project
+5. WHEN project permissions vary, THE Azure DevOps Integration SHALL enable or disable features based on the user's permissions in the current project

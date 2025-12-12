@@ -3,7 +3,7 @@
 
 export interface WorkItem {
   id: number;
-  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Info';
+  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info';
   title: string;
   description: string;
   state: string;
@@ -59,7 +59,7 @@ export interface WorkItemUpdate {
   value?: any;
 }
 
-export type WorkItemType = 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Info';
+export type WorkItemType = 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info';
 
 // MCP-specific types for the power
 export interface MCPToolRequest {

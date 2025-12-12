@@ -2,23 +2,48 @@
 
 ## Overview
 
-The Azure DevOps Integration is a Kiro extension that provides seamless connectivity between the Kiro IDE and Azure DevOps services. The current implementation focuses on core work item management functionality with VS Code native UI integration, providing a solid foundation for future intelligent automation features.
+The Azure DevOps Integration project provides comprehensive Azure DevOps work item management through two complementary implementations:
 
-The system architecture follows a layered approach with clear separation between authentication, API communication, and user interface components. The current design emphasizes reliability, user experience, and extensibility while providing comprehensive work item management capabilities.
+### VS Code Extension
+A traditional GUI-based extension that integrates natively with VS Code's interface, providing tree views, command palette integration, and dialog-based interactions for work item management.
+
+### Kiro Power  
+An MCP (Model Context Protocol) based implementation that enables natural language interaction with Azure DevOps through conversational commands, providing the same functionality as the extension but through Kiro's conversational interface.
+
+Both implementations share core architecture principles with layered design, clear separation of concerns, and emphasis on reliability, user experience, and extensibility.
 
 ## Current Implementation Status
 
-✅ **Authentication Layer**: Complete PAT authentication with VS Code settings integration
+### VS Code Extension ✅ COMPLETED
+✅ **Authentication Layer**: PAT authentication with VS Code settings integration
 ✅ **API Communication Layer**: Full Azure DevOps REST API client with rate limiting and error handling  
 ✅ **User Interface Layer**: Native VS Code integration with tree views, command palette, and dialogs
 ✅ **Work Item Management**: Complete CRUD operations for user stories and tasks
 ✅ **Hierarchical Structure**: Support for both independent tasks and parent-child relationships
+
+### Kiro Power ✅ COMPLETED
+✅ **MCP Server Architecture**: Complete azure-devops-core server implementation
+✅ **Tool Interface**: 5 MCP tools providing full work item management capabilities
+✅ **Natural Language Processing**: Conversational interface for work item operations
+✅ **Environment Configuration**: Secure credential management via environment variables
+✅ **Shared API Client**: Reusable Azure DevOps API client with same capabilities as extension
+
+### New Requirements (Both Implementations)
+🆕 **Test Case Management**: Test case CRUD operations with test plan and suite organization
+🆕 **Multi-Project Support**: Project selector with context switching and project-specific configurations
+🆕 **Enhanced Work Item Types**: Support for test cases, test plans, and test suites
+
+### Future Enhancements (Both Implementations)
 🚧 **Task Intelligence Engine**: Planned for future implementation
 🚧 **Offline Synchronization**: Planned for future implementation
 
 ## Architecture
 
-The Azure DevOps Integration follows a modular architecture with the following key layers:
+The Azure DevOps Integration follows a modular architecture with implementation-specific layers:
+
+### VS Code Extension Architecture
+
+The extension follows a traditional layered approach with the following key layers:
 
 ### Authentication Layer
 - Handles OAuth 2.0 and Personal Access Token (PAT) authentication
@@ -49,6 +74,28 @@ The Azure DevOps Integration follows a modular architecture with the following k
 - **Input Dialogs**: Native VS Code dialogs for work item creation and editing
 - **Information Dialogs**: Task details display with action buttons
 - **Settings Integration**: Configuration via VS Code settings UI
+
+### Kiro Power Architecture ✅ IMPLEMENTED
+
+The power follows an MCP-based architecture with the following components:
+
+#### MCP Server Layer
+- **azure-devops-core**: Main MCP server providing all work item management tools
+- **Tool Interface**: 5 standardized MCP tools with JSON schema validation
+- **Request Handling**: Async tool execution with comprehensive error handling
+- **Environment Configuration**: Secure credential management via environment variables
+
+#### API Communication Layer (Shared)
+- **AzureDevOpsApiClient**: Reusable API client with same capabilities as extension
+- **Authentication**: PAT-based authentication with environment variable configuration
+- **Rate Limiting**: Exponential backoff and retry logic for API resilience
+- **Error Handling**: Comprehensive error mapping and user-friendly messages
+
+#### Natural Language Interface
+- **Conversational Commands**: Natural language processing for work item operations
+- **Tool Mapping**: Direct mapping from conversational intent to MCP tool calls
+- **Response Formatting**: Human-readable responses with structured information
+- **Context Awareness**: Maintains conversation context for follow-up operations
 
 ## Components and Interfaces
 
@@ -108,14 +155,40 @@ interface WorkItemCache {
 }
 ```
 
+### TestCaseManager
+Manages test case operations and test plan organization:
+```typescript
+interface TestCaseManager {
+  createTestCase(fields: TestCaseFields, testPlanId?: number): Promise<TestCase>
+  getTestCases(query: TestCaseQuery): Promise<TestCase[]>
+  updateTestCase(id: number, updates: TestCaseUpdate[]): Promise<TestCase>
+  executeTestCase(id: number, result: TestResult): Promise<TestExecution>
+  createTestPlan(fields: TestPlanFields): Promise<TestPlan>
+  getTestPlans(projectId: string): Promise<TestPlan[]>
+  addTestCaseToSuite(testCaseId: number, suiteId: number): Promise<void>
+}
+```
+
+### ProjectManager
+Handles multi-project operations and context switching:
+```typescript
+interface ProjectManager {
+  getAccessibleProjects(): Promise<Project[]>
+  switchProject(projectId: string): Promise<ProjectContext>
+  getCurrentProject(): Project | null
+  getProjectConfiguration(projectId: string): Promise<ProjectConfig>
+  validateProjectPermissions(projectId: string): Promise<ProjectPermissions>
+}
+```
+
 ## Data Models
 
-### WorkItem ✅ IMPLEMENTED
+### WorkItem ✅ IMPLEMENTED (Enhanced for New Requirements)
 Core data structure representing Azure DevOps work items:
 ```typescript
 interface WorkItem {
   id: number
-  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Info'
+  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info'
   title: string
   description: string
   state: string
@@ -126,15 +199,97 @@ interface WorkItem {
   tags?: string[]
   createdDate: Date
   changedDate: Date
+  projectId: string
   fields?: Record<string, any>
 }
 ```
 
 **Implementation Notes:**
-- Added 'Info' type for placeholder items in tree view
+- Added 'Test Case' type for test case work items
+- Added 'projectId' field for multi-project support
 - Optional fields support for flexible work item creation
 - Full Azure DevOps field mapping with extensible fields object
 - Support for hierarchical relationships via parentId
+
+### TestCase
+Specialized data structure for test case work items:
+```typescript
+interface TestCase extends WorkItem {
+  type: 'Test Case'
+  steps: TestStep[]
+  expectedResult: string
+  priority: 'Critical' | 'High' | 'Medium' | 'Low'
+  testPlanId?: number
+  testSuiteId?: number
+  automationStatus: 'Automated' | 'Not Automated' | 'Planned'
+}
+
+interface TestStep {
+  stepNumber: number
+  action: string
+  expectedResult: string
+}
+
+interface TestResult {
+  outcome: 'Passed' | 'Failed' | 'Blocked' | 'Not Applicable'
+  comment?: string
+  executedBy: string
+  executedDate: Date
+}
+```
+
+### TestPlan
+Data structure for organizing test cases:
+```typescript
+interface TestPlan {
+  id: number
+  name: string
+  description: string
+  projectId: string
+  iterationPath: string
+  areaPath: string
+  state: 'Inactive' | 'Active' | 'Completed'
+  testSuites: TestSuite[]
+  createdDate: Date
+  changedDate: Date
+}
+
+interface TestSuite {
+  id: number
+  name: string
+  testPlanId: number
+  parentSuiteId?: number
+  testCases: TestCase[]
+  childSuites: TestSuite[]
+}
+```
+
+### Project
+Data structure for Azure DevOps projects:
+```typescript
+interface Project {
+  id: string
+  name: string
+  description: string
+  url: string
+  state: 'wellFormed' | 'createPending' | 'deleting' | 'new'
+  visibility: 'private' | 'public'
+  capabilities: ProjectCapabilities
+  processTemplate: ProcessTemplate
+}
+
+interface ProjectCapabilities {
+  versioncontrol: { sourceControlType: 'Git' | 'Tfvc' }
+  processTemplate: { templateTypeId: string }
+}
+
+interface ProcessTemplate {
+  id: string
+  name: string
+  workItemTypes: WorkItemTypeDefinition[]
+  states: StateDefinition[]
+}
+```
 
 ### TaskAnalysis
 Result of task intelligence analysis:
@@ -213,6 +368,22 @@ After analyzing the acceptance criteria, several properties emerge that can be c
 **Property 12: Error resilience**
 *For any* API failure or service unavailability, the system should handle errors gracefully with appropriate user feedback and retry mechanisms
 **Validates: Requirements 12.2, 12.3, 12.5**
+
+**Property 13: Test case creation consistency**
+*For any* valid test case data, creation should result in a test case stored in Azure DevOps with all provided fields including steps and expected results preserved
+**Validates: Requirements 13.1, 13.2**
+
+**Property 14: Test plan organization integrity**
+*For any* test case added to a test suite, the hierarchical relationship should be maintained and displayed correctly in the tree view
+**Validates: Requirements 14.2, 14.3**
+
+**Property 15: Project context consistency**
+*For any* project switch operation, all work item views should refresh to show data from the selected project and maintain project-specific configurations
+**Validates: Requirements 15.2, 16.1, 16.2**
+
+**Property 16: Multi-project permission validation**
+*For any* operation attempted in a project, the system should validate user permissions and enable/disable features based on project-specific access rights
+**Validates: Requirements 15.4, 16.5**
 
 ## Error Handling
 
@@ -296,10 +467,14 @@ The combination of unit and property-based tests provides comprehensive coverage
 **Available Commands**:
 - `Azure DevOps: Connect to Organization` - Shows input dialogs for connection setup
 - `Azure DevOps: Disconnect` - Disconnects from Azure DevOps
+- `Azure DevOps: Select Project` - Shows quick pick of accessible projects for switching context
 - `Azure DevOps: Select Active Task` - Shows quick pick of available tasks
 - `Azure DevOps: Complete Current Task` - Completes currently active task
 - `Azure DevOps: Create User Story` - Shows input dialogs for story creation
 - `Azure DevOps: Create Task` - Shows input dialogs for task creation
+- `Azure DevOps: Create Test Case` - Shows input dialogs for test case creation with steps
+- `Azure DevOps: Create Test Plan` - Shows input dialogs for test plan creation
+- `Azure DevOps: Execute Test Case` - Shows interface for test case execution and result recording
 - `Azure DevOps: Sync Work Items` - Manual synchronization with progress notification
 - `Azure DevOps: Show My Tasks` - Shows quick pick of assigned tasks
 - `Azure DevOps: Search Work Items` - Shows input dialog for search with results in quick pick
@@ -321,8 +496,9 @@ The combination of unit and property-based tests provides comprehensive coverage
 
 **Display Formats**:
 - Not connected: `$(azure-devops) Azure DevOps: Not Connected`
-- Connected: `$(azure-devops) Azure DevOps: Connected`
-- Active task: `$(azure-devops) Task #123: Implement user authentication (In Progress)`
+- Connected: `$(azure-devops) Azure DevOps: [ProjectName]`
+- Active task: `$(azure-devops) [ProjectName] - Task #123: Implement user authentication (In Progress)`
+- Project switching: `$(azure-devops) Switching to [NewProjectName]...`
 
 **Click Actions**: 
 - Not connected: Triggers connect command
@@ -407,7 +583,7 @@ Create authentication system for the application...
 
 ### Visual Design Elements ✅ IMPLEMENTED
 - **Status Indicators**: Color-coded theme icons with state-based colors (New=blue, Active=green, Done=gray, Closed=purple)
-- **Work Item Icons**: Consistent iconography (📖 User Story, ✅ Task, 🐛 Bug, ⭐ Feature)
+- **Work Item Icons**: Consistent iconography (📖 User Story, ✅ Task, 🐛 Bug, ⭐ Feature, 🧪 Test Case, 📋 Test Plan)
 - **Loading States**: Progress notifications during API operations
 - **Error States**: Clear error messages with specific guidance
 - **Success Feedback**: VS Code information notifications for completed actions

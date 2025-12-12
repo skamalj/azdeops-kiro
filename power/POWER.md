@@ -15,6 +15,24 @@ The Azure DevOps Power enables developers to manage Azure DevOps work items dire
 - **View Work Items**: Browse and search across all accessible work items
 - **Hierarchical Structure**: Support for parent-child relationships
 
+### Test Case Management
+- **Create Test Cases**: Define test scenarios with detailed steps and expected results
+- **Test Plan Organization**: Create and manage test plans for structured testing
+- **Test Execution**: Record test results and track testing progress
+- **Priority Management**: Set test case priorities (Critical, High, Medium, Low)
+
+### Multi-Project Support
+- **Project Discovery**: List all accessible projects in your organization
+- **Project Switching**: Switch between different Azure DevOps projects seamlessly
+- **Context Management**: Maintain project-specific work item contexts
+- **Cross-Project Operations**: Work with multiple projects in the same session
+
+### Scrum Dashboard
+- **Sprint Progress**: Track story points and task completion in current sprint
+- **Team Velocity**: Monitor team velocity trends and averages
+- **Burndown Analytics**: View sprint burndown data and progress tracking
+- **Work Distribution**: Analyze work items by type, state, and assignee
+
 ### Authentication & Configuration
 - **Personal Access Token**: Secure PAT-based authentication
 - **Organization Support**: Connect to any Azure DevOps organization
@@ -32,13 +50,18 @@ The Azure DevOps Power enables developers to manage Azure DevOps work items dire
 This power includes the following MCP servers:
 
 ### Azure DevOps Core Server (`azure-devops-core`)
-**Purpose**: Complete Azure DevOps work item management
+**Purpose**: Complete Azure DevOps work item management with test case support and project management
 **Tools**:
 - `create_user_story` - Create new user stories with story points
 - `create_task` - Create tasks (independent or linked to user stories)
 - `get_work_items` - Retrieve work items with advanced filtering
 - `update_work_item` - Update existing work items with patch operations
 - `get_work_item` - Get detailed information about specific work items
+- `create_test_case` - Create test cases with steps and expected results
+- `create_test_plan` - Create test plans for organizing test cases
+- `get_projects` - List accessible projects in the organization
+- `switch_project` - Switch between different Azure DevOps projects
+- `get_scrum_metrics` - Get sprint progress and team velocity metrics
 
 **Environment Variables Required**:
 - `AZURE_DEVOPS_ORG_URL` - Your Azure DevOps organization URL
@@ -129,6 +152,56 @@ Use azure-devops-core server's update_work_item tool:
     { op: "replace", path: "/fields/System.State", value: "In Progress" },
     { op: "replace", path: "/fields/System.Title", value: "New Title" }
   ]
+```
+
+### Test Case Management
+
+**Create a Test Case:**
+```
+Use azure-devops-core server's create_test_case tool:
+- title: "Verify user login functionality"
+- description: "Test user authentication with valid credentials"
+- steps: [
+    { stepNumber: 1, action: "Navigate to login page", expectedResult: "Login form is displayed" },
+    { stepNumber: 2, action: "Enter valid username and password", expectedResult: "Credentials are accepted" },
+    { stepNumber: 3, action: "Click login button", expectedResult: "User is redirected to dashboard" }
+  ]
+- priority: "High"
+```
+
+**Create a Test Plan:**
+```
+Use azure-devops-core server's create_test_plan tool:
+- name: "Sprint 1 Testing"
+- description: "Test plan for sprint 1 features"
+- areaPath: "MyProject\\Web"
+- iterationPath: "MyProject\\Sprint 1"
+- projectId: "your-project-id"
+```
+
+### Project Management
+
+**List Available Projects:**
+```
+Use azure-devops-core server's get_projects tool to see all accessible projects
+```
+
+**Switch to Different Project:**
+```
+Use azure-devops-core server's switch_project tool:
+- projectId: "proj-123"
+- projectName: "My Other Project"
+```
+
+### Scrum Dashboard
+
+**Get Sprint Metrics:**
+```
+Use azure-devops-core server's get_scrum_metrics tool to view:
+- Sprint progress and completion percentage
+- Team velocity trends and averages
+- Work item distribution by type, state, and assignee
+- Burndown data and remaining work
 ```
 
 ## Configuration

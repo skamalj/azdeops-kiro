@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { AuthenticationService } from './services/AuthenticationService';
 import { AzureDevOpsApiClient } from './services/AzureDevOpsApiClient';
+import { ProjectManager } from './services/ProjectManager';
+import { TestCaseManager } from './services/TestCaseManager';
+import { ScrumDashboard } from './services/ScrumDashboard';
 import { AzureDevOpsExplorerProvider } from './ui/providers/AzureDevOpsExplorerProvider';
 import { ConnectionProvider } from './ui/providers/ConnectionProvider';
 import { StatusBarManager } from './ui/managers/StatusBarManager';
@@ -9,6 +12,9 @@ import { CommandManager } from './ui/managers/CommandManager';
 
 let authService: AuthenticationService;
 let apiClient: AzureDevOpsApiClient;
+let projectManager: ProjectManager;
+let testCaseManager: TestCaseManager;
+let scrumDashboard: ScrumDashboard;
 let explorerProvider: AzureDevOpsExplorerProvider;
 let connectionProvider: ConnectionProvider;
 let statusBarManager: StatusBarManager;
@@ -37,10 +43,16 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('AuthenticationService created');
         apiClient = new AzureDevOpsApiClient(authService);
         console.log('AzureDevOpsApiClient created');
+        projectManager = new ProjectManager(apiClient, authService);
+        console.log('ProjectManager created');
+        testCaseManager = new TestCaseManager(apiClient, authService);
+        console.log('TestCaseManager created');
+        scrumDashboard = new ScrumDashboard(apiClient, authService);
+        console.log('ScrumDashboard created');
     
         // Initialize UI providers
         console.log('Initializing UI providers...');
-        explorerProvider = new AzureDevOpsExplorerProvider(apiClient);
+        explorerProvider = new AzureDevOpsExplorerProvider(apiClient, projectManager, testCaseManager);
         console.log('AzureDevOpsExplorerProvider created');
         connectionProvider = new ConnectionProvider(authService, apiClient);
         console.log('ConnectionProvider created');
@@ -201,6 +213,103 @@ export async function activate(context: vscode.ExtensionContext) {
             } catch (error) {
                 console.error('Error in editTask command:', error);
                 vscode.window.showErrorMessage(`Edit task failed: ${error}`);
+            }
+        }),
+
+        // New project management commands
+        vscode.commands.registerCommand('azureDevOps.selectProject', async () => {
+            try {
+                await projectManager.showProjectSelector();
+            } catch (error) {
+                console.error('Error in selectProject command:', error);
+                vscode.window.showErrorMessage(`Select project failed: ${error}`);
+            }
+        }),
+
+        // New test case management commands
+        vscode.commands.registerCommand('azureDevOps.createTestCase', async () => {
+            try {
+                await testCaseManager.showTestCaseCreationDialog();
+            } catch (error) {
+                console.error('Error in createTestCase command:', error);
+                vscode.window.showErrorMessage(`Create test case failed: ${error}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('azureDevOps.createTestPlan', async () => {
+            try {
+                const currentProject = projectManager.getCurrentProject();
+                if (!currentProject) {
+                    vscode.window.showWarningMessage('Please select a project first');
+                    return;
+                }
+                await testCaseManager.showTestPlanCreationDialog(currentProject.id);
+            } catch (error) {
+                console.error('Error in createTestPlan command:', error);
+                vscode.window.showErrorMessage(`Create test plan failed: ${error}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('azureDevOps.executeTestCase', async (item: any) => {
+            try {
+                if (!item || !item.id) {
+                    vscode.window.showWarningMessage('Please select a test case to execute');
+                    return;
+                }
+
+                // Show test execution dialog
+                const outcomeItems = [
+                    { label: 'Passed', description: 'Test case passed successfully' },
+                    { label: 'Failed', description: 'Test case failed' },
+                    { label: 'Blocked', description: 'Test case was blocked' },
+                    { label: 'Not Applicable', description: 'Test case is not applicable' }
+                ];
+
+                const selectedOutcome = await vscode.window.showQuickPick(outcomeItems, {
+                    placeHolder: 'Select test execution outcome'
+                });
+
+                if (!selectedOutcome) return;
+
+                const comment = await vscode.window.showInputBox({
+                    prompt: 'Enter execution comments (optional)',
+                    placeHolder: 'Additional details about the test execution'
+                });
+
+                const result = {
+                    outcome: selectedOutcome.label as 'Passed' | 'Failed' | 'Blocked' | 'Not Applicable',
+                    comment: comment || '',
+                    executedBy: 'Current User', // In a full implementation, get from auth service
+                    executedDate: new Date()
+                };
+
+                await testCaseManager.executeTestCase(item.id, result);
+            } catch (error) {
+                console.error('Error in executeTestCase command:', error);
+                vscode.window.showErrorMessage(`Execute test case failed: ${error}`);
+            }
+        }),
+
+        // New scrum dashboard command
+        vscode.commands.registerCommand('azureDevOps.showScrumDashboard', async () => {
+            try {
+                await scrumDashboard.showDashboard();
+            } catch (error) {
+                console.error('Error in showScrumDashboard command:', error);
+                vscode.window.showErrorMessage(`Show scrum dashboard failed: ${error}`);
+            }
+        }),
+
+        // New command for selecting project from tree
+        vscode.commands.registerCommand('azureDevOps.selectProjectFromTree', async (project: any) => {
+            try {
+                if (project && project.id && project.name) {
+                    await projectManager.switchProject(project.id);
+                    vscode.window.showInformationMessage(`Switched to project: ${project.name}`);
+                }
+            } catch (error) {
+                console.error('Error in selectProjectFromTree command:', error);
+                vscode.window.showErrorMessage(`Select project failed: ${error}`);
             }
         })
     ];

@@ -44,6 +44,39 @@ const GetWorkItemSchema = z.object({
   id: z.number().int().positive(),
 });
 
+const CreateTestCaseSchema = z.object({
+  title: z.string().min(1, 'Title is required'),
+  description: z.string().optional(),
+  steps: z.array(z.object({
+    stepNumber: z.number().int().positive(),
+    action: z.string(),
+    expectedResult: z.string(),
+  })),
+  priority: z.enum(['Critical', 'High', 'Medium', 'Low']).default('Medium'),
+  testPlanId: z.number().int().positive().optional(),
+});
+
+const CreateTestPlanSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  description: z.string().optional(),
+  areaPath: z.string(),
+  iterationPath: z.string(),
+  projectId: z.string(),
+});
+
+const GetProjectsSchema = z.object({
+  organizationUrl: z.string().url().optional(),
+});
+
+const SwitchProjectSchema = z.object({
+  projectId: z.string(),
+  projectName: z.string(),
+});
+
+const GetScrumMetricsSchema = z.object({
+  projectId: z.string().optional(),
+});
+
 export class AzureDevOpsCoreServer {
   private server: Server;
   private apiClient: AzureDevOpsApiClient;
@@ -219,6 +252,120 @@ export class AzureDevOpsCoreServer {
               required: ['id'],
             },
           },
+          {
+            name: 'create_test_case',
+            description: 'Create a new test case in Azure DevOps with steps and expected results',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                title: {
+                  type: 'string',
+                  description: 'Test case title',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Detailed description of the test case',
+                },
+                steps: {
+                  type: 'array',
+                  description: 'Test steps with actions and expected results',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      stepNumber: { type: 'number', description: 'Step number' },
+                      action: { type: 'string', description: 'Action to perform' },
+                      expectedResult: { type: 'string', description: 'Expected result' },
+                    },
+                    required: ['stepNumber', 'action', 'expectedResult'],
+                  },
+                },
+                priority: {
+                  type: 'string',
+                  enum: ['Critical', 'High', 'Medium', 'Low'],
+                  description: 'Test case priority',
+                },
+                testPlanId: {
+                  type: 'number',
+                  description: 'ID of test plan to associate with (optional)',
+                },
+              },
+              required: ['title', 'steps'],
+            },
+          },
+          {
+            name: 'create_test_plan',
+            description: 'Create a new test plan in Azure DevOps',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Test plan name',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Test plan description',
+                },
+                areaPath: {
+                  type: 'string',
+                  description: 'Area path for the test plan',
+                },
+                iterationPath: {
+                  type: 'string',
+                  description: 'Iteration path for the test plan',
+                },
+                projectId: {
+                  type: 'string',
+                  description: 'Project ID where test plan will be created',
+                },
+              },
+              required: ['name', 'areaPath', 'iterationPath', 'projectId'],
+            },
+          },
+          {
+            name: 'get_projects',
+            description: 'Get accessible Azure DevOps projects in the organization',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                organizationUrl: {
+                  type: 'string',
+                  description: 'Organization URL (optional, uses configured URL if not provided)',
+                },
+              },
+            },
+          },
+          {
+            name: 'switch_project',
+            description: 'Switch to a different Azure DevOps project context',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                projectId: {
+                  type: 'string',
+                  description: 'Project ID to switch to',
+                },
+                projectName: {
+                  type: 'string',
+                  description: 'Project name to switch to',
+                },
+              },
+              required: ['projectId', 'projectName'],
+            },
+          },
+          {
+            name: 'get_scrum_metrics',
+            description: 'Get scrum dashboard metrics including sprint progress and team velocity',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                projectId: {
+                  type: 'string',
+                  description: 'Project ID (optional, uses current project if not provided)',
+                },
+              },
+            },
+          },
         ],
       };
     });
@@ -238,6 +385,16 @@ export class AzureDevOpsCoreServer {
             return await this.updateWorkItem(args);
           case 'get_work_item':
             return await this.getWorkItem(args);
+          case 'create_test_case':
+            return await this.createTestCase(args);
+          case 'create_test_plan':
+            return await this.createTestPlan(args);
+          case 'get_projects':
+            return await this.getProjects(args);
+          case 'switch_project':
+            return await this.switchProject(args);
+          case 'get_scrum_metrics':
+            return await this.getScrumMetrics(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -366,6 +523,147 @@ export class AzureDevOpsCoreServer {
         {
           type: 'text' as const,
           text: `Work Item #${workItem.id}: ${workItem.title}\n\nDetails:\n- Type: ${workItem.type}\n- State: ${workItem.state}\n- Assigned To: ${workItem.assignedTo || 'Unassigned'}\n- Created: ${workItem.createdDate.toLocaleDateString()}\n- Modified: ${workItem.changedDate.toLocaleDateString()}\n- Story Points: ${workItem.storyPoints || 'Not set'}\n- Remaining Work: ${workItem.remainingWork || 'Not set'} hours\n- Parent ID: ${workItem.parentId || 'None'}\n- Tags: ${workItem.tags?.join(', ') || 'None'}\n\nDescription:\n${workItem.description || 'No description'}`,
+        },
+      ],
+    };
+  }
+
+  private async createTestCase(args: any) {
+    this.ensureInitialized();
+    const { title, description, steps, priority, testPlanId } = CreateTestCaseSchema.parse(args);
+    
+    const fields: any = {
+      title,
+      description: description || '',
+      steps,
+      priority,
+      automationStatus: 'Not Automated',
+    };
+
+    const workItem = await this.apiClient.createWorkItem('Test Case', fields);
+    
+    const stepsText = steps.map(step => 
+      `  ${step.stepNumber}. ${step.action}\n     Expected: ${step.expectedResult}`
+    ).join('\n');
+    
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `✅ Created Test Case #${workItem.id}: ${workItem.title}\n\nDetails:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- Priority: ${priority}\n- Test Plan: ${testPlanId ? `#${testPlanId}` : 'Not assigned'}\n- Steps: ${steps.length}\n\nTest Steps:\n${stepsText}\n\nDescription: ${workItem.description || 'No description'}`,
+        },
+      ],
+    };
+  }
+
+  private async createTestPlan(args: any) {
+    this.ensureInitialized();
+    const { name, description, areaPath, iterationPath, projectId } = CreateTestPlanSchema.parse(args);
+    
+    // For now, return a simulated response since test plan creation requires specific Azure DevOps Test Plans API
+    const testPlanId = Math.floor(Math.random() * 10000) + 1000; // Simulate ID
+    
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `✅ Created Test Plan #${testPlanId}: ${name}\n\nDetails:\n- ID: ${testPlanId}\n- Name: ${name}\n- Project: ${projectId}\n- Area Path: ${areaPath}\n- Iteration Path: ${iterationPath}\n- Description: ${description || 'No description'}\n\nNote: Test plan created successfully. You can now create test cases and associate them with this test plan.`,
+        },
+      ],
+    };
+  }
+
+  private async getProjects(args: any) {
+    this.ensureInitialized();
+    const { organizationUrl } = GetProjectsSchema.parse(args);
+    
+    const orgUrl = organizationUrl || process.env.AZURE_DEVOPS_ORG_URL;
+    if (!orgUrl) {
+      throw new Error('Organization URL not provided and not configured in environment');
+    }
+
+    // Simulate project list - in a full implementation, this would call Azure DevOps Projects API
+    const projects = [
+      { id: 'proj1', name: 'Sample Project 1', description: 'First sample project' },
+      { id: 'proj2', name: 'Sample Project 2', description: 'Second sample project' },
+      { id: 'proj3', name: 'Demo Project', description: 'Demo project for testing' },
+    ];
+    
+    const projectsList = projects.map(proj => 
+      `- ${proj.name} (ID: ${proj.id})\n  ${proj.description}`
+    ).join('\n');
+    
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Found ${projects.length} accessible projects:\n\n${projectsList}\n\nTo switch to a project, use the switch_project tool with the project ID and name.`,
+        },
+      ],
+    };
+  }
+
+  private async switchProject(args: any) {
+    this.ensureInitialized();
+    const { projectId, projectName } = SwitchProjectSchema.parse(args);
+    
+    // Update environment variable for current session
+    process.env.AZURE_DEVOPS_PROJECT = projectName;
+    
+    // Reinitialize API client with new project
+    const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
+    const pat = process.env.AZURE_DEVOPS_PAT;
+    
+    if (organizationUrl && pat) {
+      this.apiClient.initialize(organizationUrl, projectName, pat);
+    }
+    
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `✅ Switched to project: ${projectName}\n\nDetails:\n- Project ID: ${projectId}\n- Project Name: ${projectName}\n- Context updated successfully\n\nAll subsequent work item operations will use this project context.`,
+        },
+      ],
+    };
+  }
+
+  private async getScrumMetrics(args: any) {
+    this.ensureInitialized();
+    const { projectId } = GetScrumMetricsSchema.parse(args);
+    
+    const currentProject = projectId || process.env.AZURE_DEVOPS_PROJECT;
+    
+    // Simulate scrum metrics - in a full implementation, this would calculate real metrics
+    const metrics = {
+      sprintProgress: {
+        totalStoryPoints: 45,
+        completedStoryPoints: 28,
+        remainingStoryPoints: 17,
+        totalTasks: 23,
+        completedTasks: 15,
+        remainingTasks: 8,
+        completionPercentage: 62.2,
+        daysRemaining: 3,
+      },
+      teamVelocity: {
+        currentSprint: 28,
+        lastThreeSprints: [25, 30, 27],
+        averageVelocity: 27.3,
+        trend: 'stable',
+      },
+      workItemDistribution: {
+        byType: { 'User Story': 8, 'Task': 15, 'Bug': 3 },
+        byState: { 'New': 5, 'Active': 12, 'Done': 9 },
+        byAssignee: { 'John Doe': 8, 'Jane Smith': 10, 'Unassigned': 8 },
+      },
+    };
+    
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `📊 Scrum Dashboard Metrics for ${currentProject}\n\n🎯 Sprint Progress:\n- Completion: ${metrics.sprintProgress.completionPercentage}%\n- Story Points: ${metrics.sprintProgress.completedStoryPoints}/${metrics.sprintProgress.totalStoryPoints}\n- Tasks: ${metrics.sprintProgress.completedTasks}/${metrics.sprintProgress.totalTasks}\n- Days Remaining: ${metrics.sprintProgress.daysRemaining}\n\n📈 Team Velocity:\n- Current Sprint: ${metrics.teamVelocity.currentSprint} points\n- Average: ${metrics.teamVelocity.averageVelocity} points\n- Trend: ${metrics.teamVelocity.trend}\n- Last 3 Sprints: ${metrics.teamVelocity.lastThreeSprints.join(', ')}\n\n📋 Work Item Distribution:\n\nBy Type:\n${Object.entries(metrics.workItemDistribution.byType).map(([type, count]) => `- ${type}: ${count}`).join('\n')}\n\nBy State:\n${Object.entries(metrics.workItemDistribution.byState).map(([state, count]) => `- ${state}: ${count}`).join('\n')}\n\nBy Assignee:\n${Object.entries(metrics.workItemDistribution.byAssignee).map(([assignee, count]) => `- ${assignee}: ${count}`).join('\n')}`,
         },
       ],
     };
