@@ -2,7 +2,12 @@
 
 ## Introduction
 
-The Azure DevOps Integration is a Kiro extension that enables developers to seamlessly manage Azure DevOps work items directly from within the Kiro IDE. This integration provides full CRUD operations on user stories and tasks, supports both independent and hierarchical task structures, and integrates with VS Code's native UI components for a seamless development experience.
+The Azure DevOps Integration project provides comprehensive Azure DevOps work item management through two complementary implementations:
+
+1. **VS Code Extension**: A traditional GUI-based extension with native VS Code integration
+2. **Kiro Power**: An MCP-based conversational interface for natural language work item management
+
+Both implementations provide full CRUD operations on user stories and tasks, support independent and hierarchical task structures, and enable seamless Azure DevOps integration within their respective environments.
 
 ## Current Implementation Status
 

@@ -7,7 +7,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { WorkItem, WorkItemFields, WorkItemUpdate, WorkItemQuery } from '../../../shared/types/index.js';
+import { WorkItemFields, WorkItemQuery } from '../types/index.js';
 import { AzureDevOpsApiClient } from '../services/AzureDevOpsApiClient.js';
 
 // Tool schemas
@@ -44,7 +44,7 @@ const GetWorkItemSchema = z.object({
   id: z.number().int().positive(),
 });
 
-class AzureDevOpsCoreServer {
+export class AzureDevOpsCoreServer {
   private server: Server;
   private apiClient: AzureDevOpsApiClient;
 
@@ -62,7 +62,28 @@ class AzureDevOpsCoreServer {
     );
 
     this.apiClient = new AzureDevOpsApiClient();
+    this.initializeFromEnvironment();
     this.setupToolHandlers();
+  }
+
+  private initializeFromEnvironment() {
+    const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
+    const projectName = process.env.AZURE_DEVOPS_PROJECT;
+    const pat = process.env.AZURE_DEVOPS_PAT;
+
+    if (organizationUrl && projectName && pat) {
+      this.apiClient.initialize(organizationUrl, projectName, pat);
+    }
+  }
+
+  private ensureInitialized() {
+    const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
+    const projectName = process.env.AZURE_DEVOPS_PROJECT;
+    const pat = process.env.AZURE_DEVOPS_PAT;
+
+    if (!organizationUrl || !projectName || !pat) {
+      throw new Error('Azure DevOps configuration missing. Please set AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT environment variables.');
+    }
   }
 
   private setupToolHandlers() {
@@ -235,6 +256,7 @@ class AzureDevOpsCoreServer {
   }
 
   private async createUserStory(args: any) {
+    this.ensureInitialized();
     const { title, description, storyPoints } = CreateUserStorySchema.parse(args);
     
     const fields: WorkItemFields = {
@@ -256,6 +278,7 @@ class AzureDevOpsCoreServer {
   }
 
   private async createTask(args: any) {
+    this.ensureInitialized();
     const { title, description, remainingWork, parentId } = CreateTaskSchema.parse(args);
     
     const fields: WorkItemFields = {
@@ -279,6 +302,7 @@ class AzureDevOpsCoreServer {
   }
 
   private async getWorkItems(args: any) {
+    this.ensureInitialized();
     const { type, state, assignedTo, maxResults } = GetWorkItemsSchema.parse(args);
     
     const query: WorkItemQuery = {
@@ -316,6 +340,7 @@ class AzureDevOpsCoreServer {
   }
 
   private async updateWorkItem(args: any) {
+    this.ensureInitialized();
     const { id, updates } = UpdateWorkItemSchema.parse(args);
     
     const workItem = await this.apiClient.updateWorkItem(id, updates);
@@ -331,6 +356,7 @@ class AzureDevOpsCoreServer {
   }
 
   private async getWorkItem(args: any) {
+    this.ensureInitialized();
     const { id } = GetWorkItemSchema.parse(args);
     
     const workItem = await this.apiClient.getWorkItem(id);
@@ -352,5 +378,4 @@ class AzureDevOpsCoreServer {
   }
 }
 
-const server = new AzureDevOpsCoreServer();
-server.run().catch(console.error);
+// Export for use in main index file

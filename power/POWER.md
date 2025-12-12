@@ -31,30 +31,19 @@ The Azure DevOps Power enables developers to manage Azure DevOps work items dire
 
 This power includes the following MCP servers:
 
-### 1. Azure DevOps Core Server (`azure-devops-core`)
-**Purpose**: Core work item operations
+### Azure DevOps Core Server (`azure-devops-core`)
+**Purpose**: Complete Azure DevOps work item management
 **Tools**:
-- `create_user_story` - Create new user stories
-- `create_task` - Create tasks (independent or linked)
-- `get_work_items` - Retrieve work items with filtering
-- `update_work_item` - Update existing work items
-- `get_work_item` - Get specific work item by ID
+- `create_user_story` - Create new user stories with story points
+- `create_task` - Create tasks (independent or linked to user stories)
+- `get_work_items` - Retrieve work items with advanced filtering
+- `update_work_item` - Update existing work items with patch operations
+- `get_work_item` - Get detailed information about specific work items
 
-### 2. Azure DevOps Auth Server (`azure-devops-auth`)
-**Purpose**: Authentication and connection management
-**Tools**:
-- `authenticate` - Establish connection to Azure DevOps
-- `get_auth_status` - Check current authentication status
-- `disconnect` - Disconnect from Azure DevOps
-- `test_connection` - Verify connection and permissions
-
-### 3. Azure DevOps Search Server (`azure-devops-search`)
-**Purpose**: Advanced search and filtering
-**Tools**:
-- `search_work_items` - Full-text search across work items
-- `filter_by_assignment` - Filter tasks by assignee
-- `filter_by_state` - Filter by work item state
-- `get_my_tasks` - Get tasks assigned to current user
+**Environment Variables Required**:
+- `AZURE_DEVOPS_ORG_URL` - Your Azure DevOps organization URL
+- `AZURE_DEVOPS_PROJECT` - Target project name
+- `AZURE_DEVOPS_PAT` - Personal Access Token with Work Items permissions
 
 ## Installation
 
@@ -69,7 +58,7 @@ This power includes the following MCP servers:
 3. Build the power: `npm run build`
 4. Activate in Kiro Powers panel
 
-### Configure MCP Servers
+### Configure MCP Server
 Add to your Kiro MCP configuration:
 
 ```json
@@ -77,20 +66,12 @@ Add to your Kiro MCP configuration:
   "mcpServers": {
     "azure-devops-core": {
       "command": "node",
-      "args": ["path/to/power/mcp-servers/azure-devops-core.js"],
+      "args": ["path/to/power/dist/index.js", "azure-devops-core"],
       "env": {
         "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/yourorg",
         "AZURE_DEVOPS_PROJECT": "YourProject",
         "AZURE_DEVOPS_PAT": "your-personal-access-token"
       }
-    },
-    "azure-devops-auth": {
-      "command": "node", 
-      "args": ["path/to/power/mcp-servers/azure-devops-auth.js"]
-    },
-    "azure-devops-search": {
-      "command": "node",
-      "args": ["path/to/power/mcp-servers/azure-devops-search.js"]
     }
   }
 }
@@ -100,11 +81,8 @@ Add to your Kiro MCP configuration:
 
 ### Getting Started
 1. Activate the Azure DevOps Power in Kiro
-2. Use the authentication server to connect:
-   ```
-   Use azure-devops-auth server's authenticate tool with your credentials
-   ```
-3. Start managing work items through the core server tools
+2. Configure environment variables with your Azure DevOps credentials
+3. Start managing work items through natural language commands
 
 ### Creating Work Items
 
@@ -198,13 +176,20 @@ npm run dev  # Watch mode compilation
 ```
 power/
 ├── src/                          # TypeScript source
-├── mcp-servers/                  # MCP server implementations
-│   ├── azure-devops-core.ts
-│   ├── azure-devops-auth.ts
-│   └── azure-devops-search.ts
+│   ├── mcp-servers/             # MCP server implementations
+│   │   └── azure-devops-core.ts
+│   ├── services/                # API client services
+│   │   └── AzureDevOpsApiClient.ts
+│   ├── types/                   # TypeScript type definitions
+│   │   └── index.ts
+│   └── index.ts                 # Main entry point
+├── steering/                     # Workflow guides
+│   ├── getting-started.md
+│   └── advanced-usage.md
 ├── dist/                         # Compiled JavaScript
 ├── POWER.md                      # This documentation
-└── package.json                  # Power configuration
+├── package.json                  # Power configuration
+└── tsconfig.json                 # TypeScript configuration
 ```
 
 ## Troubleshooting
