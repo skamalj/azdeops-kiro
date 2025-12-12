@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "azure-devops-core": {
+      "command": "node",
+      "args": [
+        "power/dist/index.js",
+        "azure-devops-core"
+      ],
+      "env": {
+        "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",
+        "AZURE_DEVOPS_PROJECT": "${AZURE_DEVOPS_PROJECT}",
+        "AZURE_DEVOPS_PAT": "${AZURE_DEVOPS_PAT}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "create_user_story",
+        "create_task",
+        "get_work_items",
+        "update_work_item",
+        "get_work_item",
+        "create_test_case",
+        "create_test_plan",
+        "get_projects",
+        "switch_project",
+        "get_scrum_metrics"
+      ]
+    }
+  }
+}
