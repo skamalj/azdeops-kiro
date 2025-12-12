@@ -5,12 +5,13 @@ import * as path from 'path';
 export class MCPServerService {
   private mcpProcess: cp.ChildProcess | null = null;
   private isRunning: boolean = false;
+  private port: number = 3001; // Fixed port for Kiro to connect to
 
   constructor() {}
 
   async startMCPServer(): Promise<void> {
     if (this.isRunning) {
-      console.log('MCP Server is already running');
+      console.log('MCP Server is already running on port', this.port);
       return;
     }
 
@@ -24,33 +25,50 @@ export class MCPServerService {
       const mcpServerPath = path.join(extensionPath, 'mcp-server', 'index.js');
       
       console.log('Starting MCP Server at:', mcpServerPath);
+      console.log('MCP Server will listen on port:', this.port);
 
-      // Start the MCP server process
-      this.mcpProcess = cp.spawn('node', [mcpServerPath], {
+      // Start the MCP server process with HTTP server mode
+      this.mcpProcess = cp.spawn('node', [mcpServerPath, '--http', this.port.toString()], {
         stdio: 'pipe',
         env: {
           ...process.env,
           // Pass through environment variables for Azure DevOps
           AZURE_DEVOPS_ORG_URL: process.env.AZURE_DEVOPS_ORG_URL,
           AZURE_DEVOPS_PROJECT: process.env.AZURE_DEVOPS_PROJECT,
-          AZURE_DEVOPS_PAT: process.env.AZURE_DEVOPS_PAT
+          AZURE_DEVOPS_PAT: process.env.AZURE_DEVOPS_PAT,
+          MCP_SERVER_PORT: this.port.toString()
         }
       });
 
       this.mcpProcess.on('spawn', () => {
-        console.log('MCP Server process started successfully');
+        console.log(`MCP Server process started successfully on port ${this.port}`);
         this.isRunning = true;
+        
+        // Show notification to user
+        vscode.window.showInformationMessage(
+          `Azure DevOps MCP Server started on port ${this.port}`,
+          'Open Kiro Power'
+        ).then(selection => {
+          if (selection === 'Open Kiro Power') {
+            vscode.env.openExternal(vscode.Uri.parse('https://kiro.ai/powers'));
+          }
+        });
       });
 
       this.mcpProcess.on('error', (error) => {
         console.error('MCP Server process error:', error);
         this.isRunning = false;
+        vscode.window.showErrorMessage(`MCP Server failed to start: ${error.message}`);
       });
 
       this.mcpProcess.on('exit', (code, signal) => {
         console.log(`MCP Server process exited with code ${code} and signal ${signal}`);
         this.isRunning = false;
         this.mcpProcess = null;
+        
+        if (code !== 0) {
+          vscode.window.showWarningMessage(`MCP Server stopped unexpectedly (code: ${code})`);
+        }
       });
 
       // Log output for debugging
@@ -79,6 +97,10 @@ export class MCPServerService {
       this.mcpProcess = null;
       this.isRunning = false;
     }
+  }
+
+  getPort(): number {
+    return this.port;
   }
 
   isServerRunning(): boolean {

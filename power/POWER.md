@@ -90,18 +90,24 @@ This power includes the following MCP servers:
 
 ### Install Power
 1. Clone or download the repository: `git clone https://github.com/skamalj/azdeops-kiro.git`
-2. Install the power from the local `power/` directory in Kiro Powers panel
-3. The MCP server will reference the `mcp-server/` directory
+2. **Install MCP Server Dependencies** (REQUIRED):
+   ```bash
+   cd mcp-server
+   npm install
+   ```
+3. Install the power from the local `power/` directory in Kiro Powers panel
 4. Set your environment variables (see Configuration section)
 5. Restart Kiro to activate the power
 
 ### MCP Server Setup
-The power uses a local MCP server located in the `mcp-server/` directory. The server requires the `@modelcontextprotocol/sdk` package to be available. Install it by running:
+⚠️ **IMPORTANT**: The power uses a local MCP server located in the `mcp-server/` directory. You MUST install the dependencies before using the power:
 
 ```bash
 cd mcp-server
 npm install
 ```
+
+This installs the `@modelcontextprotocol/sdk` package and other required dependencies. Without this step, the MCP server will fail to start with "Cannot find module" errors.
 
 ## Usage
 

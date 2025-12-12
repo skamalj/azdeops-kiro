@@ -1,120 +1,88 @@
-# Azure DevOps Power - Complete Installation Guide
+# Azure DevOps Integration - Installation Guide
 
-## 🚀 **Quick Installation Steps**
+This project provides Azure DevOps integration in two ways:
 
-### **1. Clone the Repository**
-```bash
-git clone https://github.com/skamalj/azdeops-kiro.git
-cd azdeops-kiro
-```
+## Option 1: For Kiro IDE Users (Recommended)
 
-### **2. Install MCP Server Dependencies**
-```bash
-cd mcp-server
-npm install
-cd ..
-```
+### Install the Kiro Power
 
-### **3. Install the Power in Kiro**
-1. Open Kiro IDE
-2. Go to Powers panel
-3. Click "Install from Folder"
-4. Navigate to and select the `power/` directory
-5. Kiro will install the power
+1. **Install the Power:**
+   ```
+   Use Kiro's Power installation from GitHub: https://github.com/skamalj/azdeops-kiro
+   ```
 
-### **4. Set Environment Variables**
+2. **Set Environment Variables:**
+   ```bash
+   AZURE_DEVOPS_ORG_URL="https://dev.azure.com/skamalj0630"
+   AZURE_DEVOPS_PROJECT="PartsUnlimited-CD"
+   AZURE_DEVOPS_PAT="Your_Personal_Access_Token"
+   ```
 
-**Windows (PowerShell):**
-```powershell
-$env:AZURE_DEVOPS_ORG_URL = "https://dev.azure.com/skamalj0630"
-$env:AZURE_DEVOPS_PROJECT = "PartsUnlimited-CD"
-$env:AZURE_DEVOPS_PAT = "your-personal-access-token"
-```
-
-**macOS/Linux:**
-```bash
-export AZURE_DEVOPS_ORG_URL="https://dev.azure.com/skamalj0630"
-export AZURE_DEVOPS_PROJECT="PartsUnlimited-CD"
-export AZURE_DEVOPS_PAT="your-personal-access-token"
-```
-
-### **5. Get Your Personal Access Token**
-1. Go to: `https://dev.azure.com/skamalj0630`
-2. Click your profile → Personal Access Tokens
-3. Create new token with these permissions:
-   - ✅ **Work Items**: Read & Write
-   - ✅ **Test Management**: Read & Write
-   - ✅ **Project and Team**: Read
-4. Copy the token and use it as `AZURE_DEVOPS_PAT`
-
-### **6. Restart Kiro**
-Restart Kiro to load the new power and environment variables.
-
-### **7. Test the Power**
-Try these commands:
-- "Show me all work items from Azure DevOps"
-- "Create a user story called 'Test Integration'"
-- "List all projects in my organization"
-
-## 🔧 **Troubleshooting**
-
-### **MCP Server Connection Issues**
-If you get "Connection closed" errors:
-
-1. **Check Dependencies**:
+3. **Install MCP Server Dependencies:**
    ```bash
    cd mcp-server
    npm install
    ```
 
-2. **Verify Environment Variables**:
-   - Ensure all three variables are set
-   - Restart Kiro after setting variables
+4. **Use the Power:**
+   - The power will automatically start the MCP server
+   - Use Kiro's MCP tools to interact with Azure DevOps
 
-3. **Test MCP Server Manually**:
+## Option 2: For VS Code Users
+
+### Install the VS Code Extension
+
+1. **Install Extension:**
+   - Install the `azure-devops-integration-1.0.0.vsix` file in VS Code
+   - Or install from VS Code marketplace (when published)
+
+2. **Configure Settings:**
+   - Open VS Code Settings
+   - Search for "Azure DevOps"
+   - Set your organization URL, project name, and PAT
+
+3. **Use the Extension:**
+   - Extension automatically starts MCP server (bundled)
+   - Use VS Code's Azure DevOps panel and commands
+
+## Environment Variables
+
+Set these environment variables for authentication:
+
+- `AZURE_DEVOPS_ORG_URL`: Your Azure DevOps organization URL
+- `AZURE_DEVOPS_PROJECT`: Your project name
+- `AZURE_DEVOPS_PAT`: Your Personal Access Token with Work Items permissions
+
+## Getting a Personal Access Token
+
+1. Go to Azure DevOps → User Settings → Personal Access Tokens
+2. Create new token with "Work Items (Read & Write)" permissions
+3. Copy the token and use it as `AZURE_DEVOPS_PAT`
+
+## Troubleshooting
+
+### MCP Server Connection Issues
+
+If you see "Cannot find module" errors:
+
+1. **For Kiro Power users:**
    ```bash
    cd mcp-server
-   node index.js
+   npm install
    ```
 
-4. **Check Paths**:
-   - Ensure the `mcp.json` path `../mcp-server/index.js` is correct
-   - The power should be installed in a directory adjacent to `mcp-server/`
+2. **For VS Code Extension users:**
+   - Reinstall the extension (dependencies are bundled)
 
-### **Authentication Issues**
-- Verify PAT token has correct permissions
-- Check organization URL format (include https://)
-- Ensure project name matches exactly
+### Authentication Issues
 
-### **Power Not Loading**
-- Ensure power is installed from the correct `power/` directory
-- Check that `POWER.md` has proper frontmatter
-- Verify only allowed files are in the power directory
+1. Verify environment variables are set correctly
+2. Test your PAT in Azure DevOps web interface
+3. Ensure PAT has "Work Items (Read & Write)" permissions
 
-## 📁 **Expected Directory Structure**
-After installation, your structure should look like:
-```
-azdeops-kiro/
-├── power/              # Installed as Kiro Power
-│   ├── POWER.md
-│   ├── mcp.json
-│   └── steering/
-├── mcp-server/         # MCP Server with dependencies
-│   ├── index.js
-│   ├── package.json
-│   └── node_modules/
-└── extension/          # VS Code Extension (optional)
-```
+## Architecture
 
-## 🎯 **Success Indicators**
-- ✅ Power appears in Kiro Powers panel
-- ✅ MCP server "azure-devops-core" shows as connected
-- ✅ Commands like "Show me all work items" return results
-- ✅ Can create user stories and tasks via natural language
-
-## 📞 **Support**
-If you encounter issues:
-1. Check this troubleshooting guide
-2. Verify all prerequisites are met
-3. Test MCP server independently
-4. Check Kiro's MCP server logs for detailed errors
+- **VS Code Extension**: Starts MCP server on TCP port 3001 (735KB)
+- **Kiro Power**: Connects to running MCP server via TCP
+- **MCP Server**: Handles Azure DevOps API communication
+- **Connection**: Extension starts server, Power connects to it
