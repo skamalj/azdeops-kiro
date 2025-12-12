@@ -18,6 +18,7 @@ class ConnectionTreeItem extends vscode.TreeItem {
 export class ConnectionProvider implements vscode.TreeDataProvider<ConnectionTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<ConnectionTreeItem | undefined | null | void> = new vscode.EventEmitter<ConnectionTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<ConnectionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    private currentProject: string = 'Unknown';
 
     constructor(
         private authService: AuthenticationService,
@@ -26,6 +27,11 @@ export class ConnectionProvider implements vscode.TreeDataProvider<ConnectionTre
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
+    }
+
+    updateCurrentProject(projectName: string): void {
+        this.currentProject = projectName;
+        this.refresh();
     }
 
     getTreeItem(element: ConnectionTreeItem): vscode.TreeItem {
@@ -119,6 +125,10 @@ export class ConnectionProvider implements vscode.TreeDataProvider<ConnectionTre
     }
 
     private getProjectName(): string {
+        // Use current project from ProjectManager if available, otherwise fall back to config
+        if (this.currentProject && this.currentProject !== 'Unknown') {
+            return this.currentProject;
+        }
         const config = vscode.workspace.getConfiguration('azureDevOps');
         return config.get<string>('projectName', 'Unknown');
     }

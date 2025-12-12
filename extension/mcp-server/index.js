@@ -1,476 +1,919 @@
 #!/usr/bin/env node
-
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AzureDevOpsCoreServer = void 0;
+const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
+const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
+const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
+const zod_1 = require("zod");
+// Tool schemas
+const CreateUserStorySchema = zod_1.z.object({
+    title: zod_1.z.string().min(1, 'Title is required'),
+    description: zod_1.z.string().optional(),
+    storyPoints: zod_1.z.number().int().min(1).max(21).optional(),
+});
+const CreateTaskSchema = zod_1.z.object({
+    title: zod_1.z.string().min(1, 'Title is required'),
+    description: zod_1.z.string().optional(),
+    remainingWork: zod_1.z.number().min(0).optional(),
+    parentId: zod_1.z.number().int().positive().optional(),
+});
+const GetWorkItemsSchema = zod_1.z.object({
+    type: zod_1.z.enum(['User Story', 'Task', 'Bug', 'Feature']).optional(),
+    state: zod_1.z.string().optional(),
+    assignedTo: zod_1.z.string().optional(),
+    maxResults: zod_1.z.number().int().positive().max(200).default(50),
+});
+const UpdateWorkItemSchema = zod_1.z.object({
+    id: zod_1.z.number().int().positive(),
+    updates: zod_1.z.array(zod_1.z.object({
+        op: zod_1.z.enum(['add', 'replace', 'remove']),
+        path: zod_1.z.string(),
+        value: zod_1.z.any().optional(),
+    })),
+});
+const GetWorkItemSchema = zod_1.z.object({
+    id: zod_1.z.number().int().positive(),
+});
+const CreateTestCaseSchema = zod_1.z.object({
+    title: zod_1.z.string().min(1, 'Title is required'),
+    description: zod_1.z.string().optional(),
+    steps: zod_1.z.array(zod_1.z.object({
+        stepNumber: zod_1.z.number().int().positive(),
+        action: zod_1.z.string(),
+        expectedResult: zod_1.z.string(),
+    })),
+    priority: zod_1.z.enum(['Critical', 'High', 'Medium', 'Low']).default('Medium'),
+    testPlanId: zod_1.z.number().int().positive().optional(),
+});
+const CreateTestPlanSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1, 'Name is required'),
+    description: zod_1.z.string().optional(),
+    areaPath: zod_1.z.string(),
+    iterationPath: zod_1.z.string(),
+    projectId: zod_1.z.string(),
+});
+const GetProjectsSchema = zod_1.z.object({
+    organizationUrl: zod_1.z.string().url().optional(),
+});
+const SwitchProjectSchema = zod_1.z.object({
+    projectId: zod_1.z.string(),
+    projectName: zod_1.z.string(),
+});
+const GetScrumMetricsSchema = zod_1.z.object({
+    projectId: zod_1.z.string().optional(),
+});
+const GetTestCasesSchema = zod_1.z.object({
+    projectId: zod_1.z.string().optional(),
+    testPlanId: zod_1.z.number().int().positive().optional(),
+    maxResults: zod_1.z.number().int().positive().max(200).default(50),
+});
+const GetTestPlansSchema = zod_1.z.object({
+    projectId: zod_1.z.string().optional(),
+});
+const ExecuteTestCaseSchema = zod_1.z.object({
+    testCaseId: zod_1.z.number().int().positive(),
+    outcome: zod_1.z.enum(['Passed', 'Failed', 'Blocked', 'Not Applicable']),
+    comment: zod_1.z.string().optional(),
+    executedBy: zod_1.z.string(),
+});
 class AzureDevOpsApiClient {
-  constructor() {
-    this.organizationUrl = '';
-    this.projectName = '';
-    this.pat = '';
-  }
-
-  initialize(organizationUrl, projectName, pat) {
-    this.organizationUrl = organizationUrl;
-    this.projectName = projectName;
-    this.pat = pat;
-  }
-
-  getAuthHeader() {
-    return `Basic ${Buffer.from(`:${this.pat}`).toString('base64')}`;
-  }
-
-  getBaseUrl() {
-    return `${this.organizationUrl}/${this.projectName}`;
-  }
-
-  async createWorkItem(type, fields, parentId) {
-    const patchDocument = [
-      { op: 'add', path: '/fields/System.Title', value: fields.title },
-      { op: 'add', path: '/fields/System.Description', value: fields.description || '' },
-    ];
-
-    if (fields.storyPoints) {
-      patchDocument.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.StoryPoints', value: fields.storyPoints });
+    constructor() {
+        this.organizationUrl = '';
+        this.projectName = '';
+        this.pat = '';
     }
-
-    if (fields.remainingWork) {
-      patchDocument.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: fields.remainingWork });
+    initialize(organizationUrl, projectName, pat) {
+        this.organizationUrl = organizationUrl;
+        this.projectName = projectName;
+        this.pat = pat;
     }
-
-    const response = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/workitems/$${type}?api-version=7.0`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json-patch+json'
-        },
-        body: JSON.stringify(patchDocument)
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to create work item: ${response.status} ${response.statusText}`);
+    getAuthHeader() {
+        return `Basic ${Buffer.from(`:${this.pat}`).toString('base64')}`;
     }
-
-    const data = await response.json();
-    
-    if (parentId) {
-      await this.linkWorkItems(data.id, parentId, 'System.LinkTypes.Hierarchy-Reverse');
+    getBaseUrl() {
+        return `${this.organizationUrl}/${this.projectName}`;
     }
-
-    return this.mapAzureWorkItemToWorkItem(data);
-  }
-
-  async getWorkItems(query = {}) {
-    let wiql = `SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '${this.projectName}'`;
-    
-    if (query.type) {
-      wiql += ` AND [System.WorkItemType] = '${query.type}'`;
-    }
-    
-    if (query.state) {
-      wiql += ` AND [System.State] = '${query.state}'`;
-    }
-    
-    if (query.assignedTo) {
-      wiql += ` AND [System.AssignedTo] = '${query.assignedTo}'`;
-    }
-
-    const queryResponse = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ query: wiql })
-      }
-    );
-
-    if (!queryResponse.ok) {
-      throw new Error(`Failed to query work items: ${queryResponse.status} ${queryResponse.statusText}`);
-    }
-
-    const queryData = await queryResponse.json();
-    const workItemIds = queryData.workItems?.map(wi => wi.id) || [];
-
-    if (workItemIds.length === 0) {
-      return [];
-    }
-
-    const idsParam = workItemIds.slice(0, query.maxResults || 50).join(',');
-    const detailsResponse = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&api-version=7.0`,
-      {
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json'
+    async createWorkItem(type, fields, parentId) {
+        const patchDocument = [
+            { op: 'add', path: '/fields/System.Title', value: fields.title },
+            { op: 'add', path: '/fields/System.Description', value: fields.description || '' },
+        ];
+        if (fields.storyPoints) {
+            patchDocument.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.StoryPoints', value: fields.storyPoints });
         }
-      }
-    );
-
-    if (!detailsResponse.ok) {
-      throw new Error(`Failed to get work item details: ${detailsResponse.status} ${detailsResponse.statusText}`);
-    }
-
-    const detailsData = await detailsResponse.json();
-    return detailsData.value.map(item => this.mapAzureWorkItemToWorkItem(item));
-  }
-
-  async getWorkItem(id) {
-    const response = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/workitems/${id}?api-version=7.0`,
-      {
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json'
+        if (fields.remainingWork) {
+            patchDocument.push({ op: 'add', path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork', value: fields.remainingWork });
         }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to get work item: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return this.mapAzureWorkItemToWorkItem(data);
-  }
-
-  async updateWorkItem(id, updates) {
-    const response = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/workitems/${id}?api-version=7.0`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json-patch+json'
-        },
-        body: JSON.stringify(updates)
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to update work item: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return this.mapAzureWorkItemToWorkItem(data);
-  }
-
-  async linkWorkItems(sourceId, targetId, linkType) {
-    const linkData = {
-      op: 'add',
-      path: '/relations/-',
-      value: {
-        rel: linkType,
-        url: `${this.getBaseUrl()}/_apis/wit/workItems/${targetId}`
-      }
-    };
-
-    const response = await fetch(
-      `${this.getBaseUrl()}/_apis/wit/workitems/${sourceId}?api-version=7.0`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Authorization': this.getAuthHeader(),
-          'Content-Type': 'application/json-patch+json'
-        },
-        body: JSON.stringify([linkData])
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to link work items: ${response.status} ${response.statusText}`);
-    }
-  }
-
-  mapAzureWorkItemToWorkItem(azureWorkItem) {
-    const fields = azureWorkItem.fields || {};
-    
-    return {
-      id: azureWorkItem.id,
-      type: fields['System.WorkItemType'] || 'Task',
-      title: fields['System.Title'] || '',
-      description: fields['System.Description'] || '',
-      state: fields['System.State'] || 'New',
-      assignedTo: fields['System.AssignedTo']?.displayName || undefined,
-      storyPoints: fields['Microsoft.VSTS.Scheduling.StoryPoints'] || undefined,
-      remainingWork: fields['Microsoft.VSTS.Scheduling.RemainingWork'] || undefined,
-      tags: fields['System.Tags'] ? fields['System.Tags'].split(';').map(tag => tag.trim()).filter(tag => tag) : undefined,
-      createdDate: new Date(fields['System.CreatedDate']),
-      changedDate: new Date(fields['System.ChangedDate']),
-      projectId: fields['System.TeamProject'] || '',
-      fields: fields
-    };
-  }
-}
-
-export class AzureDevOpsCoreServer {
-  constructor() {
-    this.server = new Server(
-      {
-        name: 'azure-devops-core',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    this.apiClient = new AzureDevOpsApiClient();
-    this.initializeFromEnvironment();
-    this.setupToolHandlers();
-  }
-
-  initializeFromEnvironment() {
-    const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
-    const projectName = process.env.AZURE_DEVOPS_PROJECT;
-    const pat = process.env.AZURE_DEVOPS_PAT;
-
-    if (organizationUrl && projectName && pat) {
-      this.apiClient.initialize(organizationUrl, projectName, pat);
-    }
-  }
-
-  ensureInitialized() {
-    const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
-    const projectName = process.env.AZURE_DEVOPS_PROJECT;
-    const pat = process.env.AZURE_DEVOPS_PAT;
-
-    if (!organizationUrl || !projectName || !pat) {
-      throw new Error('Azure DevOps configuration missing. Please set AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT environment variables.');
-    }
-  }
-
-  setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return {
-        tools: [
-          {
-            name: 'create_user_story',
-            description: 'Create a new user story in Azure DevOps',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                title: { type: 'string', description: 'User story title' },
-                description: { type: 'string', description: 'Detailed description' },
-                storyPoints: { type: 'number', description: 'Story points (1-21)', minimum: 1, maximum: 21 },
-              },
-              required: ['title'],
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/$${type}?api-version=7.0`, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json-patch+json'
             },
-          },
-          {
-            name: 'create_task',
-            description: 'Create a new task in Azure DevOps',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                title: { type: 'string', description: 'Task title' },
-                description: { type: 'string', description: 'Detailed description' },
-                remainingWork: { type: 'number', description: 'Remaining work in hours', minimum: 0 },
-                parentId: { type: 'number', description: 'Parent user story ID (optional)' },
-              },
-              required: ['title'],
-            },
-          },
-          {
-            name: 'get_work_items',
-            description: 'Retrieve work items from Azure DevOps',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                type: { type: 'string', enum: ['User Story', 'Task', 'Bug', 'Feature'] },
-                state: { type: 'string', description: 'Work item state' },
-                assignedTo: { type: 'string', description: 'Assigned user' },
-                maxResults: { type: 'number', minimum: 1, maximum: 200, default: 50 },
-              },
-            },
-          },
-          {
-            name: 'update_work_item',
-            description: 'Update an existing work item',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                id: { type: 'number', description: 'Work item ID' },
-                updates: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      op: { type: 'string', enum: ['add', 'replace', 'remove'] },
-                      path: { type: 'string' },
-                      value: {},
-                    },
-                    required: ['op', 'path'],
-                  },
-                },
-              },
-              required: ['id', 'updates'],
-            },
-          },
-          {
-            name: 'get_work_item',
-            description: 'Get a specific work item by ID',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                id: { type: 'number', description: 'Work item ID' },
-              },
-              required: ['id'],
-            },
-          },
-        ],
-      };
-    });
-
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      try {
-        switch (name) {
-          case 'create_user_story':
-            return await this.createUserStory(args);
-          case 'create_task':
-            return await this.createTask(args);
-          case 'get_work_items':
-            return await this.getWorkItems(args);
-          case 'update_work_item':
-            return await this.updateWorkItem(args);
-          case 'get_work_item':
-            return await this.getWorkItem(args);
-          default:
-            throw new Error(`Unknown tool: ${name}`);
+            body: JSON.stringify(patchDocument)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to create work item: ${response.status} ${response.statusText}`);
         }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: ${errorMessage}`,
+        const data = await response.json();
+        // Link to parent if specified
+        if (parentId) {
+            await this.linkWorkItems(data.id, parentId, 'System.LinkTypes.Hierarchy-Reverse');
+        }
+        return this.mapAzureWorkItemToWorkItem(data);
+    }
+    async getWorkItems(query = {}) {
+        let wiql = `SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.TeamProject] = '${this.projectName}'`;
+        if (query.type) {
+            wiql += ` AND [System.WorkItemType] = '${query.type}'`;
+        }
+        if (query.state) {
+            wiql += ` AND [System.State] = '${query.state}'`;
+        }
+        if (query.assignedTo) {
+            wiql += ` AND [System.AssignedTo] = '${query.assignedTo}'`;
+        }
+        const queryResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
             },
-          ],
+            body: JSON.stringify({ query: wiql })
+        });
+        if (!queryResponse.ok) {
+            throw new Error(`Failed to query work items: ${queryResponse.status} ${queryResponse.statusText}`);
+        }
+        const queryData = await queryResponse.json();
+        const workItemIds = queryData.workItems?.map((wi) => wi.id) || [];
+        if (workItemIds.length === 0) {
+            return [];
+        }
+        const idsParam = workItemIds.slice(0, query.maxResults || 50).join(',');
+        const detailsResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&api-version=7.0`, {
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!detailsResponse.ok) {
+            throw new Error(`Failed to get work item details: ${detailsResponse.status} ${detailsResponse.statusText}`);
+        }
+        const detailsData = await detailsResponse.json();
+        return detailsData.value.map((item) => this.mapAzureWorkItemToWorkItem(item));
+    }
+    async getWorkItem(id) {
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/${id}?api-version=7.0`, {
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to get work item: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return this.mapAzureWorkItemToWorkItem(data);
+    }
+    async updateWorkItem(id, updates) {
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/${id}?api-version=7.0`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json-patch+json'
+            },
+            body: JSON.stringify(updates)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to update work item: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return this.mapAzureWorkItemToWorkItem(data);
+    }
+    async linkWorkItems(sourceId, targetId, linkType) {
+        const linkData = {
+            op: 'add',
+            path: '/relations/-',
+            value: {
+                rel: linkType,
+                url: `${this.getBaseUrl()}/_apis/wit/workItems/${targetId}`
+            }
         };
-      }
-    });
-  }
-
-  async createUserStory(args) {
-    this.ensureInitialized();
-    const { title, description, storyPoints } = args;
-    
-    const fields = { title, description: description || '', storyPoints };
-    const workItem = await this.apiClient.createWorkItem('User Story', fields);
-    
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Created User Story #${workItem.id}: ${workItem.title}\n\nDetails:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- State: ${workItem.state}\n- Story Points: ${workItem.storyPoints || 'Not set'}\n- Description: ${workItem.description || 'No description'}`,
-        },
-      ],
-    };
-  }
-
-  async createTask(args) {
-    this.ensureInitialized();
-    const { title, description, remainingWork, parentId } = args;
-    
-    const fields = { title, description: description || '', remainingWork };
-    const workItem = await this.apiClient.createWorkItem('Task', fields, parentId);
-    
-    const parentInfo = parentId ? `\n- Parent: User Story #${parentId}` : '\n- Type: Independent task';
-    
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Created Task #${workItem.id}: ${workItem.title}\n\nDetails:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- State: ${workItem.state}\n- Remaining Work: ${workItem.remainingWork || 'Not set'} hours${parentInfo}\n- Description: ${workItem.description || 'No description'}`,
-        },
-      ],
-    };
-  }
-
-  async getWorkItems(args) {
-    this.ensureInitialized();
-    const query = args || {};
-    
-    const workItems = await this.apiClient.getWorkItems(query);
-    
-    if (workItems.length === 0) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'No work items found matching the specified criteria.',
-          },
-        ],
-      };
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/${sourceId}?api-version=7.0`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json-patch+json'
+            },
+            body: JSON.stringify([linkData])
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to link work items: ${response.status} ${response.statusText}`);
+        }
     }
-
-    const workItemsList = workItems.map(item => 
-      `- #${item.id}: ${item.title} (${item.type}, ${item.state}${item.assignedTo ? `, assigned to ${item.assignedTo}` : ''})`
-    ).join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Found ${workItems.length} work item(s):\n\n${workItemsList}`,
-        },
-      ],
-    };
-  }
-
-  async updateWorkItem(args) {
-    this.ensureInitialized();
-    const { id, updates } = args;
-    
-    const workItem = await this.apiClient.updateWorkItem(id, updates);
-    
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Updated Work Item #${workItem.id}: ${workItem.title}\n\nCurrent Details:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- Type: ${workItem.type}\n- State: ${workItem.state}\n- Assigned To: ${workItem.assignedTo || 'Unassigned'}`,
-        },
-      ],
-    };
-  }
-
-  async getWorkItem(args) {
-    this.ensureInitialized();
-    const { id } = args;
-    
-    const workItem = await this.apiClient.getWorkItem(id);
-    
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Work Item #${workItem.id}: ${workItem.title}\n\nDetails:\n- Type: ${workItem.type}\n- State: ${workItem.state}\n- Assigned To: ${workItem.assignedTo || 'Unassigned'}\n- Created: ${workItem.createdDate.toLocaleDateString()}\n- Modified: ${workItem.changedDate.toLocaleDateString()}\n- Story Points: ${workItem.storyPoints || 'Not set'}\n- Remaining Work: ${workItem.remainingWork || 'Not set'} hours\n- Tags: ${workItem.tags?.join(', ') || 'None'}\n\nDescription:\n${workItem.description || 'No description'}`,
-        },
-      ],
-    };
-  }
-
-  async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('Azure DevOps Core MCP server running on stdio');
-  }
+    async getProjects() {
+        const response = await fetch(`${this.organizationUrl}/_apis/projects?api-version=7.0`, {
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to get projects: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data.value.map((proj) => this.mapAzureProjectToProject(proj));
+    }
+    async createTestCase(fields, testPlanId) {
+        const patchDocument = this.buildTestCasePatchDocument(fields, testPlanId);
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/$Test%20Case?api-version=7.0`, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json-patch+json'
+            },
+            body: JSON.stringify(patchDocument)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to create test case: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return this.mapAzureWorkItemToWorkItem(data);
+    }
+    async createTestPlan(fields) {
+        const testPlanData = {
+            name: fields.name,
+            description: fields.description,
+            areaPath: fields.areaPath,
+            iteration: fields.iterationPath,
+            state: 'Active'
+        };
+        const response = await fetch(`${this.getBaseUrl()}/_apis/testplan/Plans?api-version=7.0`, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(testPlanData)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to create test plan: ${response.status} ${response.statusText}`);
+        }
+        return await response.json();
+    }
+    async getTestCases(projectId, testPlanId, maxResults = 50) {
+        let wiql = `SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo] FROM WorkItems WHERE [System.WorkItemType] = 'Test Case'`;
+        if (projectId) {
+            wiql += ` AND [System.TeamProject] = '${projectId}'`;
+        }
+        else if (this.projectName) {
+            wiql += ` AND [System.TeamProject] = '${this.projectName}'`;
+        }
+        if (testPlanId) {
+            wiql += ` AND [Microsoft.VSTS.TCM.TestPlanId] = ${testPlanId}`;
+        }
+        const queryResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query: wiql })
+        });
+        if (!queryResponse.ok) {
+            throw new Error(`Failed to query test cases: ${queryResponse.status} ${queryResponse.statusText}`);
+        }
+        const queryData = await queryResponse.json();
+        const workItemIds = queryData.workItems?.map((wi) => wi.id) || [];
+        if (workItemIds.length === 0) {
+            return [];
+        }
+        const idsParam = workItemIds.slice(0, maxResults).join(',');
+        const detailsResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&$expand=all&api-version=7.0`, {
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!detailsResponse.ok) {
+            throw new Error(`Failed to get test case details: ${detailsResponse.status} ${detailsResponse.statusText}`);
+        }
+        const detailsData = await detailsResponse.json();
+        return detailsData.value.map((item) => this.mapAzureWorkItemToWorkItem(item));
+    }
+    async getTestPlans(projectId) {
+        const response = await fetch(`${this.getBaseUrl()}/_apis/testplan/Plans?api-version=7.0`, {
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to get test plans: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data.value;
+    }
+    async executeTestCase(testCaseId, result) {
+        const patchDocument = [
+            {
+                op: 'replace',
+                path: '/fields/Microsoft.VSTS.TCM.LastResult',
+                value: result.outcome
+            },
+            {
+                op: 'replace',
+                path: '/fields/Microsoft.VSTS.TCM.LastResultDetails',
+                value: result.comment || ''
+            },
+            {
+                op: 'replace',
+                path: '/fields/Microsoft.VSTS.TCM.LastRunBy',
+                value: result.executedBy
+            }
+        ];
+        const response = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems/${testCaseId}?api-version=7.0`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json-patch+json'
+            },
+            body: JSON.stringify(patchDocument)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to execute test case: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        return this.mapAzureWorkItemToWorkItem(data);
+    }
+    buildTestCasePatchDocument(fields, testPlanId) {
+        const patchDocument = [
+            {
+                op: 'add',
+                path: '/fields/System.Title',
+                value: fields.title
+            },
+            {
+                op: 'add',
+                path: '/fields/System.Description',
+                value: fields.description || ''
+            },
+            {
+                op: 'add',
+                path: '/fields/Microsoft.VSTS.Common.Priority',
+                value: this.mapPriorityToNumber(fields.priority)
+            },
+            {
+                op: 'add',
+                path: '/fields/Microsoft.VSTS.TCM.AutomationStatus',
+                value: 'Not Automated'
+            }
+        ];
+        if (fields.steps && fields.steps.length > 0) {
+            const stepsXml = this.buildTestStepsXml(fields.steps);
+            patchDocument.push({
+                op: 'add',
+                path: '/fields/Microsoft.VSTS.TCM.Steps',
+                value: stepsXml
+            });
+        }
+        if (testPlanId) {
+            patchDocument.push({
+                op: 'add',
+                path: '/fields/Microsoft.VSTS.TCM.TestPlanId',
+                value: testPlanId
+            });
+        }
+        return patchDocument;
+    }
+    buildTestStepsXml(steps) {
+        let xml = `<steps id="0" last="${steps.length}">`;
+        steps.forEach(step => {
+            xml += `<step id="${step.stepNumber}" type="ActionStep">`;
+            xml += `<parameterizedString isformatted="true">${this.escapeXml(step.action)}</parameterizedString>`;
+            xml += `<parameterizedString isformatted="true">${this.escapeXml(step.expectedResult)}</parameterizedString>`;
+            xml += `<description/>`;
+            xml += `</step>`;
+        });
+        xml += '</steps>';
+        return xml;
+    }
+    escapeXml(text) {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    mapPriorityToNumber(priority) {
+        switch (priority) {
+            case 'Critical': return 1;
+            case 'High': return 2;
+            case 'Medium': return 3;
+            case 'Low': return 4;
+            default: return 3;
+        }
+    }
+    mapAzureProjectToProject(azureProject) {
+        return {
+            id: azureProject.id,
+            name: azureProject.name,
+            description: azureProject.description || '',
+            url: azureProject.url,
+            state: azureProject.state || 'wellFormed',
+            visibility: azureProject.visibility || 'private'
+        };
+    }
+    mapAzureWorkItemToWorkItem(azureWorkItem) {
+        const fields = azureWorkItem.fields || {};
+        return {
+            id: azureWorkItem.id,
+            type: fields['System.WorkItemType'] || 'Task',
+            title: fields['System.Title'] || '',
+            description: fields['System.Description'] || '',
+            state: fields['System.State'] || 'New',
+            assignedTo: fields['System.AssignedTo']?.displayName || undefined,
+            storyPoints: fields['Microsoft.VSTS.Scheduling.StoryPoints'] || undefined,
+            remainingWork: fields['Microsoft.VSTS.Scheduling.RemainingWork'] || undefined,
+            tags: fields['System.Tags'] ? fields['System.Tags'].split(';').map((tag) => tag.trim()).filter((tag) => tag) : undefined,
+            createdDate: new Date(fields['System.CreatedDate']),
+            changedDate: new Date(fields['System.ChangedDate']),
+            projectId: fields['System.TeamProject'] || '',
+            fields: fields
+        };
+    }
 }
-
+class AzureDevOpsCoreServer {
+    constructor() {
+        this.server = new index_js_1.Server({
+            name: 'azure-devops-core',
+            version: '1.0.0',
+        }, {
+            capabilities: {
+                tools: {},
+            },
+        });
+        this.apiClient = new AzureDevOpsApiClient();
+        this.initializeFromEnvironment();
+        this.setupToolHandlers();
+    }
+    initializeFromEnvironment() {
+        const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
+        const projectName = process.env.AZURE_DEVOPS_PROJECT;
+        const pat = process.env.AZURE_DEVOPS_PAT;
+        if (organizationUrl && projectName && pat) {
+            this.apiClient.initialize(organizationUrl, projectName, pat);
+        }
+    }
+    ensureInitialized() {
+        const organizationUrl = process.env.AZURE_DEVOPS_ORG_URL;
+        const projectName = process.env.AZURE_DEVOPS_PROJECT;
+        const pat = process.env.AZURE_DEVOPS_PAT;
+        if (!organizationUrl || !projectName || !pat) {
+            throw new Error('Azure DevOps configuration missing. Please set AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT environment variables.');
+        }
+    }
+    setupToolHandlers() {
+        this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
+            return {
+                tools: [
+                    {
+                        name: 'create_user_story',
+                        description: 'Create a new user story in Azure DevOps',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                title: { type: 'string', description: 'User story title' },
+                                description: { type: 'string', description: 'Detailed description' },
+                                storyPoints: { type: 'number', description: 'Story points (1-21)', minimum: 1, maximum: 21 },
+                            },
+                            required: ['title'],
+                        },
+                    },
+                    {
+                        name: 'create_task',
+                        description: 'Create a new task in Azure DevOps',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                title: { type: 'string', description: 'Task title' },
+                                description: { type: 'string', description: 'Detailed description' },
+                                remainingWork: { type: 'number', description: 'Remaining work in hours', minimum: 0 },
+                                parentId: { type: 'number', description: 'Parent user story ID (optional)' },
+                            },
+                            required: ['title'],
+                        },
+                    },
+                    {
+                        name: 'get_work_items',
+                        description: 'Retrieve work items from Azure DevOps',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                type: { type: 'string', enum: ['User Story', 'Task', 'Bug', 'Feature'] },
+                                state: { type: 'string', description: 'Work item state' },
+                                assignedTo: { type: 'string', description: 'Assigned user' },
+                                maxResults: { type: 'number', minimum: 1, maximum: 200, default: 50 },
+                            },
+                        },
+                    },
+                    {
+                        name: 'update_work_item',
+                        description: 'Update an existing work item',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'number', description: 'Work item ID' },
+                                updates: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            op: { type: 'string', enum: ['add', 'replace', 'remove'] },
+                                            path: { type: 'string' },
+                                            value: {},
+                                        },
+                                        required: ['op', 'path'],
+                                    },
+                                },
+                            },
+                            required: ['id', 'updates'],
+                        },
+                    },
+                    {
+                        name: 'get_work_item',
+                        description: 'Get a specific work item by ID',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'number', description: 'Work item ID' },
+                            },
+                            required: ['id'],
+                        },
+                    },
+                    {
+                        name: 'get_projects',
+                        description: 'Get accessible projects in the organization',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                organizationUrl: { type: 'string', description: 'Organization URL (optional)' },
+                            },
+                        },
+                    },
+                    {
+                        name: 'switch_project',
+                        description: 'Switch to a different project',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                projectId: { type: 'string', description: 'Project ID' },
+                                projectName: { type: 'string', description: 'Project name' },
+                            },
+                            required: ['projectId', 'projectName'],
+                        },
+                    },
+                    {
+                        name: 'create_test_case',
+                        description: 'Create a new test case',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                title: { type: 'string', description: 'Test case title' },
+                                description: { type: 'string', description: 'Test case description' },
+                                steps: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            stepNumber: { type: 'number' },
+                                            action: { type: 'string' },
+                                            expectedResult: { type: 'string' },
+                                        },
+                                        required: ['stepNumber', 'action', 'expectedResult'],
+                                    },
+                                },
+                                priority: { type: 'string', enum: ['Critical', 'High', 'Medium', 'Low'], default: 'Medium' },
+                                testPlanId: { type: 'number', description: 'Test plan ID (optional)' },
+                            },
+                            required: ['title', 'steps'],
+                        },
+                    },
+                    {
+                        name: 'create_test_plan',
+                        description: 'Create a new test plan',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Test plan name' },
+                                description: { type: 'string', description: 'Test plan description' },
+                                areaPath: { type: 'string', description: 'Area path' },
+                                iterationPath: { type: 'string', description: 'Iteration path' },
+                                projectId: { type: 'string', description: 'Project ID' },
+                            },
+                            required: ['name', 'areaPath', 'iterationPath', 'projectId'],
+                        },
+                    },
+                    {
+                        name: 'get_test_cases',
+                        description: 'Get test cases',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                                testPlanId: { type: 'number', description: 'Test plan ID (optional)' },
+                                maxResults: { type: 'number', minimum: 1, maximum: 200, default: 50 },
+                            },
+                        },
+                    },
+                    {
+                        name: 'get_test_plans',
+                        description: 'Get test plans',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                            },
+                        },
+                    },
+                    {
+                        name: 'execute_test_case',
+                        description: 'Execute a test case and record results',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                testCaseId: { type: 'number', description: 'Test case ID' },
+                                outcome: { type: 'string', enum: ['Passed', 'Failed', 'Blocked', 'Not Applicable'] },
+                                comment: { type: 'string', description: 'Execution comment (optional)' },
+                                executedBy: { type: 'string', description: 'Person who executed the test' },
+                            },
+                            required: ['testCaseId', 'outcome', 'executedBy'],
+                        },
+                    },
+                ],
+            };
+        });
+        this.server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
+            const { name, arguments: args } = request.params;
+            try {
+                switch (name) {
+                    case 'create_user_story':
+                        return await this.createUserStory(args);
+                    case 'create_task':
+                        return await this.createTask(args);
+                    case 'get_work_items':
+                        return await this.getWorkItems(args);
+                    case 'update_work_item':
+                        return await this.updateWorkItem(args);
+                    case 'get_work_item':
+                        return await this.getWorkItem(args);
+                    case 'get_projects':
+                        return await this.getProjects(args);
+                    case 'switch_project':
+                        return await this.switchProject(args);
+                    case 'create_test_case':
+                        return await this.createTestCase(args);
+                    case 'create_test_plan':
+                        return await this.createTestPlan(args);
+                    case 'get_test_cases':
+                        return await this.getTestCases(args);
+                    case 'get_test_plans':
+                        return await this.getTestPlans(args);
+                    case 'execute_test_case':
+                        return await this.executeTestCase(args);
+                    default:
+                        throw new Error(`Unknown tool: ${name}`);
+                }
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Error: ${errorMessage}`,
+                        },
+                    ],
+                };
+            }
+        });
+    }
+    async createUserStory(args) {
+        this.ensureInitialized();
+        const { title, description, storyPoints } = CreateUserStorySchema.parse(args);
+        const fields = { title, description: description || '', storyPoints };
+        const workItem = await this.apiClient.createWorkItem('User Story', fields);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Created User Story #${workItem.id}: ${workItem.title}\n\nDetails:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- State: ${workItem.state}\n- Story Points: ${workItem.storyPoints || 'Not set'}\n- Description: ${workItem.description || 'No description'}`,
+                },
+            ],
+        };
+    }
+    async createTask(args) {
+        this.ensureInitialized();
+        const { title, description, remainingWork, parentId } = CreateTaskSchema.parse(args);
+        const fields = { title, description: description || '', remainingWork };
+        const workItem = await this.apiClient.createWorkItem('Task', fields, parentId);
+        const parentInfo = parentId ? `\n- Parent: User Story #${parentId}` : '\n- Type: Independent task';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Created Task #${workItem.id}: ${workItem.title}\n\nDetails:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- State: ${workItem.state}\n- Remaining Work: ${workItem.remainingWork || 'Not set'} hours${parentInfo}\n- Description: ${workItem.description || 'No description'}`,
+                },
+            ],
+        };
+    }
+    async getWorkItems(args) {
+        this.ensureInitialized();
+        const query = GetWorkItemsSchema.parse(args);
+        const workItems = await this.apiClient.getWorkItems(query);
+        if (workItems.length === 0) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'No work items found matching the specified criteria.',
+                    },
+                ],
+            };
+        }
+        const workItemsList = workItems.map(item => `- #${item.id}: ${item.title} (${item.type}, ${item.state}${item.assignedTo ? `, assigned to ${item.assignedTo}` : ''})`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Found ${workItems.length} work item(s):\n\n${workItemsList}`,
+                },
+            ],
+        };
+    }
+    async updateWorkItem(args) {
+        this.ensureInitialized();
+        const { id, updates } = UpdateWorkItemSchema.parse(args);
+        const workItem = await this.apiClient.updateWorkItem(id, updates);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Updated Work Item #${workItem.id}: ${workItem.title}\n\nCurrent Details:\n- ID: ${workItem.id}\n- Title: ${workItem.title}\n- Type: ${workItem.type}\n- State: ${workItem.state}\n- Assigned To: ${workItem.assignedTo || 'Unassigned'}`,
+                },
+            ],
+        };
+    }
+    async getWorkItem(args) {
+        this.ensureInitialized();
+        const { id } = GetWorkItemSchema.parse(args);
+        const workItem = await this.apiClient.getWorkItem(id);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Work Item #${workItem.id}: ${workItem.title}\n\nDetails:\n- Type: ${workItem.type}\n- State: ${workItem.state}\n- Assigned To: ${workItem.assignedTo || 'Unassigned'}\n- Created: ${workItem.createdDate.toLocaleDateString()}\n- Modified: ${workItem.changedDate.toLocaleDateString()}\n- Story Points: ${workItem.storyPoints || 'Not set'}\n- Remaining Work: ${workItem.remainingWork || 'Not set'} hours\n- Tags: ${workItem.tags?.join(', ') || 'None'}\n\nDescription:\n${workItem.description || 'No description'}`,
+                },
+            ],
+        };
+    }
+    async getProjects(args) {
+        this.ensureInitialized();
+        const projects = await this.apiClient.getProjects();
+        if (projects.length === 0) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'No accessible projects found in this organization.',
+                    },
+                ],
+            };
+        }
+        const projectsList = projects.map(project => `- ${project.name} (${project.id}) - ${project.state} | ${project.visibility}`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Found ${projects.length} accessible project(s):\n\n${projectsList}`,
+                },
+            ],
+        };
+    }
+    async switchProject(args) {
+        this.ensureInitialized();
+        const { projectId, projectName } = SwitchProjectSchema.parse(args);
+        // Update the API client with new project
+        this.apiClient.initialize(process.env.AZURE_DEVOPS_ORG_URL, projectName, process.env.AZURE_DEVOPS_PAT);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Switched to project: ${projectName} (${projectId})\n\nYou can now create and manage work items in this project.`,
+                },
+            ],
+        };
+    }
+    async createTestCase(args) {
+        this.ensureInitialized();
+        const { title, description, steps, priority, testPlanId } = CreateTestCaseSchema.parse(args);
+        const fields = { title, description: description || '', steps, priority };
+        const testCase = await this.apiClient.createTestCase(fields, testPlanId);
+        const testPlanInfo = testPlanId ? `\n- Test Plan: #${testPlanId}` : '\n- Type: Independent test case';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Created Test Case #${testCase.id}: ${testCase.title}\n\nDetails:\n- ID: ${testCase.id}\n- Title: ${testCase.title}\n- State: ${testCase.state}\n- Priority: ${priority}\n- Steps: ${steps.length}${testPlanInfo}\n- Description: ${testCase.description || 'No description'}`,
+                },
+            ],
+        };
+    }
+    async createTestPlan(args) {
+        this.ensureInitialized();
+        const { name, description, areaPath, iterationPath, projectId } = CreateTestPlanSchema.parse(args);
+        const fields = { name, description: description || '', areaPath, iterationPath };
+        const testPlan = await this.apiClient.createTestPlan(fields);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Created Test Plan #${testPlan.id}: ${testPlan.name}\n\nDetails:\n- ID: ${testPlan.id}\n- Name: ${testPlan.name}\n- Project: ${projectId}\n- Area Path: ${areaPath}\n- Iteration Path: ${iterationPath}\n- State: ${testPlan.state}\n- Description: ${testPlan.description || 'No description'}`,
+                },
+            ],
+        };
+    }
+    async getTestCases(args) {
+        this.ensureInitialized();
+        const { projectId, testPlanId, maxResults } = GetTestCasesSchema.parse(args);
+        const testCases = await this.apiClient.getTestCases(projectId, testPlanId, maxResults);
+        if (testCases.length === 0) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'No test cases found matching the specified criteria.',
+                    },
+                ],
+            };
+        }
+        const testCasesList = testCases.map(testCase => `- #${testCase.id}: ${testCase.title} (${testCase.state}${testCase.assignedTo ? `, assigned to ${testCase.assignedTo}` : ''})`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Found ${testCases.length} test case(s):\n\n${testCasesList}`,
+                },
+            ],
+        };
+    }
+    async getTestPlans(args) {
+        this.ensureInitialized();
+        const { projectId } = GetTestPlansSchema.parse(args);
+        const testPlans = await this.apiClient.getTestPlans(projectId);
+        if (testPlans.length === 0) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'No test plans found in the specified project.',
+                    },
+                ],
+            };
+        }
+        const testPlansList = testPlans.map(testPlan => `- #${testPlan.id}: ${testPlan.name} (${testPlan.state})`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Found ${testPlans.length} test plan(s):\n\n${testPlansList}`,
+                },
+            ],
+        };
+    }
+    async executeTestCase(args) {
+        this.ensureInitialized();
+        const { testCaseId, outcome, comment, executedBy } = ExecuteTestCaseSchema.parse(args);
+        const result = { outcome, comment, executedBy };
+        const testCase = await this.apiClient.executeTestCase(testCaseId, result);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Test Case #${testCaseId} executed successfully\n\nExecution Details:\n- Test Case: #${testCase.id} - ${testCase.title}\n- Outcome: ${outcome}\n- Executed By: ${executedBy}\n- Comment: ${comment || 'No comment'}\n- Execution Date: ${new Date().toLocaleDateString()}`,
+                },
+            ],
+        };
+    }
+    async run() {
+        const transport = new stdio_js_1.StdioServerTransport();
+        await this.server.connect(transport);
+        console.error('Azure DevOps Core MCP server running on stdio');
+    }
+}
+exports.AzureDevOpsCoreServer = AzureDevOpsCoreServer;
 // Run the server
 const server = new AzureDevOpsCoreServer();
 server.run().catch(console.error);

@@ -93,6 +93,10 @@ export class ProjectManager {
         
         this.updateStatusBar();
         
+        // Update workspace configuration to persist the project change
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        await config.update('projectName', project.name, vscode.ConfigurationTarget.Global);
+        
         // Fire project changed event
         this._onProjectChanged.fire(this.projectContext);
         
@@ -160,30 +164,17 @@ export class ProjectManager {
     }
   }
 
-  async validateProjectPermissions(projectId: string): Promise<ProjectPermissions> {
-    try {
-      // For now, return default permissions
-      // In a full implementation, this would check actual Azure DevOps permissions
-      return {
-        canCreateWorkItems: true,
-        canEditWorkItems: true,
-        canDeleteWorkItems: true,
-        canManageTestPlans: true,
-        canExecuteTests: true,
-        canViewReports: true
-      };
-    } catch (error) {
-      console.error('Failed to validate permissions:', error);
-      // Return minimal permissions on error
-      return {
-        canCreateWorkItems: false,
-        canEditWorkItems: false,
-        canDeleteWorkItems: false,
-        canManageTestPlans: false,
-        canExecuteTests: false,
-        canViewReports: false
-      };
-    }
+  async validateProjectPermissions(_projectId: string): Promise<ProjectPermissions> {
+    // For now, return default permissions
+    // In a full implementation, this would check actual Azure DevOps permissions
+    return {
+      canCreateWorkItems: true,
+      canEditWorkItems: true,
+      canDeleteWorkItems: true,
+      canManageTestPlans: true,
+      canExecuteTests: true,
+      canViewReports: true
+    };
   }
 
   async showProjectSelector(): Promise<void> {

@@ -17,6 +17,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:azureDevOps.connect",
     "onCommand:azureDevOps.createUserStory",
     "onCommand:azureDevOps.createTask",
@@ -178,7 +179,7 @@
         },
         {
           "command": "azureDevOps.viewTask",
-          "when": "view == azureDevOpsExplorer && (viewItem == task || viewItem == userstory)",
+          "when": "view == azureDevOpsExplorer && (viewItem == task || viewItem == userstory || viewItem == epic || viewItem == issue || viewItem == productbacklogitem || viewItem == feature)",
           "group": "2_view"
         }
       ],

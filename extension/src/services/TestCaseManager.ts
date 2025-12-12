@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TestCase, TestPlan, TestSuite, TestCaseFields, TestPlanFields, TestStep, TestResult } from '../types';
+import { TestCase, TestPlan, TestCaseFields, TestPlanFields, TestStep, TestResult } from '../types';
 import { AzureDevOpsApiClient } from './AzureDevOpsApiClient';
 import { AuthenticationService } from './AuthenticationService';
 
@@ -255,6 +255,7 @@ export class TestCaseManager {
       const steps: TestStep[] = [];
       let stepNumber = 1;
       
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const action = await vscode.window.showInputBox({
           prompt: `Enter action for step ${stepNumber} (or press Escape to finish)`,

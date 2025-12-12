@@ -30,6 +30,60 @@ export async function refreshExtensionUI() {
     }
 }
 
+// Auto-connection function
+async function attemptAutoConnection() {
+    try {
+        const config = vscode.workspace.getConfiguration('azureDevOps');
+        const orgUrl = config.get<string>('organizationUrl');
+        const projectName = config.get<string>('projectName');
+        const pat = config.get<string>('personalAccessToken');
+
+        if (orgUrl && projectName && pat) {
+            console.log('Found existing configuration, attempting auto-connection...');
+            
+            // Try to authenticate
+            const authResult = await authService.authenticate({
+                organizationUrl: orgUrl,
+                projectName: projectName,
+                authType: 'PAT',
+                token: pat
+            });
+
+            if (authResult.success) {
+                console.log('Auto-connection successful');
+                
+                // Initialize API client
+                apiClient.initialize(orgUrl, projectName);
+                
+                // Try to get current project info and update ProjectManager
+                try {
+                    const projects = await projectManager.getAccessibleProjects();
+                    const currentProject = projects.find(p => p.name === projectName);
+                    if (currentProject) {
+                        await projectManager.switchProject(currentProject.id);
+                        console.log('Auto-switched to configured project:', projectName);
+                    }
+                } catch (error) {
+                    console.warn('Could not auto-switch to project:', error);
+                }
+                
+                // Update UI
+                await updateConnectionContext();
+                
+                vscode.window.showInformationMessage(`🔗 Auto-connected to ${projectName}`);
+            } else {
+                console.log('Auto-connection failed:', authResult.error);
+                vscode.window.showWarningMessage('Azure DevOps configuration found but connection failed. Please check your settings.');
+            }
+        } else {
+            console.log('No complete configuration found, skipping auto-connection');
+        }
+    } catch (error) {
+        console.error('Error during auto-connection:', error);
+        // Don't show error to user for auto-connection failures
+    }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     console.log('=== Azure DevOps Integration extension ACTIVATION STARTED ===');
     
@@ -49,7 +103,7 @@ export async function activate(context: vscode.ExtensionContext) {
         console.log('ProjectManager created');
         testCaseManager = new TestCaseManager(apiClient, authService);
         console.log('TestCaseManager created');
-        scrumDashboard = new ScrumDashboard(apiClient, authService);
+        scrumDashboard = new ScrumDashboard(apiClient, authService, projectManager);
         console.log('ScrumDashboard created');
     
         // Initialize UI providers
@@ -83,6 +137,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Add tree views to disposables
     context.subscriptions.push(explorerTreeView, connectionTreeView);
+
+    // Listen for project changes and update connection provider
+    console.log('Setting up project change listener...');
+    const projectChangeListener = projectManager.onProjectChanged((projectContext) => {
+        console.log('Project changed to:', projectContext.project.name);
+        connectionProvider.updateCurrentProject(projectContext.project.name);
+        // Also refresh the explorer to show project-specific work items
+        explorerProvider.refresh();
+    });
+    context.subscriptions.push(projectChangeListener);
 
         // Register commands
         console.log('Registering commands...');
@@ -374,6 +438,10 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(mcpServerService);
         
         console.log('=== Azure DevOps extension activation completed successfully ===');
+        
+        // Auto-connect if configuration is available
+        console.log('Checking for existing configuration...');
+        await attemptAutoConnection();
         
         // Show success message
         vscode.window.showInformationMessage('✅ Azure DevOps Extension Activated Successfully!');

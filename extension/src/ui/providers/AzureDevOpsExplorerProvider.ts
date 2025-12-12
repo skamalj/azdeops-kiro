@@ -126,7 +126,7 @@ export class WorkItemTreeItem extends AzureDevOpsTreeItem {
         this.description = `#${workItem.id} - ${workItem.state}`;
         
         // Set context value for menu contributions
-        this.contextValue = workItem.type.toLowerCase().replace(' ', '');
+        this.contextValue = workItem.type.toLowerCase().replace(/\s+/g, '');
         
         // Set icon based on work item type
         this.iconPath = this.getIconPath(workItem.type, workItem.state);
@@ -143,14 +143,20 @@ export class WorkItemTreeItem extends AzureDevOpsTreeItem {
 
     private getIconPath(type: string, state: string): vscode.ThemeIcon {
         switch (type) {
+            case 'Epic':
+                return new vscode.ThemeIcon('milestone', this.getStateColor(state));
             case 'User Story':
                 return new vscode.ThemeIcon('book', this.getStateColor(state));
+            case 'Issue':
+                return new vscode.ThemeIcon('issues', this.getStateColor(state));
             case 'Task':
                 return new vscode.ThemeIcon('checklist', this.getStateColor(state));
             case 'Bug':
                 return new vscode.ThemeIcon('bug', this.getStateColor(state));
             case 'Feature':
                 return new vscode.ThemeIcon('star', this.getStateColor(state));
+            case 'Product Backlog Item':
+                return new vscode.ThemeIcon('package', this.getStateColor(state));
             default:
                 return new vscode.ThemeIcon('circle', this.getStateColor(state));
         }
@@ -159,17 +165,25 @@ export class WorkItemTreeItem extends AzureDevOpsTreeItem {
     private getStateColor(state: string): vscode.ThemeColor | undefined {
         switch (state.toLowerCase()) {
             case 'new':
+            case 'to do':
                 return new vscode.ThemeColor('charts.blue');
             case 'active':
             case 'in progress':
+            case 'doing':
                 return new vscode.ThemeColor('charts.green');
             case 'resolved':
             case 'done':
+            case 'completed':
                 return new vscode.ThemeColor('charts.gray');
             case 'closed':
+            case 'removed':
                 return new vscode.ThemeColor('charts.purple');
+            case 'blocked':
+                return new vscode.ThemeColor('charts.red');
+            case 'committed':
+                return new vscode.ThemeColor('charts.orange');
             default:
-                return undefined;
+                return new vscode.ThemeColor('foreground');
         }
     }
 }
@@ -305,14 +319,14 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
 
     private async getWorkItemSectionChildren(): Promise<WorkItemTreeItem[]> {
         await this.loadWorkItems();
-        const stories = Array.from(this.userStories.values());
+        const storyLevelItems = Array.from(this.userStories.values());
         const rootItems: WorkItemTreeItem[] = [];
         
-        // Add user stories (with potential child tasks)
-        stories.forEach(story => {
+        // Add story-level items (Epics, User Stories, Issues, etc.) with potential child tasks
+        storyLevelItems.forEach(storyItem => {
             rootItems.push(new WorkItemTreeItem(
-                story,
-                this.tasks.has(story.id) ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None
+                storyItem,
+                this.tasks.has(storyItem.id) ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None
             ));
         });
         
@@ -329,7 +343,7 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
                         title: 'No work items found',
                         type: 'Info',
                         state: 'Empty',
-                        description: 'Create your first user story or task using the command palette',
+                        description: 'Create your first work item using the command palette',
                         assignedTo: '',
                         createdDate: new Date(),
                         changedDate: new Date(),
@@ -369,7 +383,7 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
     }
 
     private async getWorkItemChildren(workItem: WorkItemTreeItem): Promise<WorkItemTreeItem[]> {
-        // Child level - show tasks for the user story
+        // Child level - show tasks for the parent work item (Epic, User Story, Issue, etc.)
         const tasks = this.tasks.get(workItem.workItem.id) || [];
         return tasks.map(task => 
             new WorkItemTreeItem(task, vscode.TreeItemCollapsibleState.None, workItem)
@@ -385,20 +399,25 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
 
     private async loadWorkItems(): Promise<void> {
         try {
-            // Load user stories
-            const stories = await this.apiClient.getWorkItems({ type: 'User Story' });
+            // Get all work items to support different process templates
+            const allWorkItems = await this.apiClient.getWorkItems({});
+            
+            // Separate story-level items from tasks
+            const storyLevelTypes = ['Epic', 'User Story', 'Issue', 'Product Backlog Item', 'Feature'];
+            const storyLevelItems = allWorkItems.filter(item => storyLevelTypes.includes(item.type));
+            const tasks = allWorkItems.filter(item => item.type === 'Task');
+            
+            // Store story-level items (using userStories map for backward compatibility)
             this.userStories.clear();
-            stories.forEach(story => this.userStories.set(story.id, story));
+            storyLevelItems.forEach(story => this.userStories.set(story.id, story));
 
-            // Load tasks
-            const tasks = await this.apiClient.getWorkItems({ type: 'Task' });
+            // Group tasks by parent or mark as independent
             this.tasks.clear();
             this.independentTasks = [];
             
-            // Group tasks by parent user story or mark as independent
             tasks.forEach(task => {
                 if (task.parentId) {
-                    // Task has a parent - group under user story
+                    // Task has a parent - group under parent work item
                     if (!this.tasks.has(task.parentId)) {
                         this.tasks.set(task.parentId, []);
                     }
@@ -409,9 +428,9 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
                 }
             });
 
-            this.workItems = [...stories, ...tasks];
+            this.workItems = [...storyLevelItems, ...tasks];
             
-            console.log(`Loaded ${stories.length} user stories, ${this.independentTasks.length} independent tasks, ${tasks.length - this.independentTasks.length} linked tasks`);
+            console.log(`Loaded ${storyLevelItems.length} story-level items (${storyLevelItems.map(s => s.type).join(', ')}), ${this.independentTasks.length} independent tasks, ${tasks.length - this.independentTasks.length} linked tasks`);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to load work items: ${error}`);
         }
@@ -453,13 +472,16 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
     }
 
     /**
-     * Get all user stories for parent selection
+     * Get all story-level work items for parent selection (Epics, User Stories, Issues, etc.)
      */
     async getUserStories(): Promise<WorkItem[]> {
         try {
-            return await this.apiClient.getWorkItems({ type: 'User Story' });
+            // Get all work items and filter to story-level types
+            const allWorkItems = await this.apiClient.getWorkItems({});
+            const storyLevelTypes = ['Epic', 'User Story', 'Issue', 'Product Backlog Item', 'Feature'];
+            return allWorkItems.filter(item => storyLevelTypes.includes(item.type));
         } catch (error) {
-            console.error('Failed to load user stories:', error);
+            console.error('Failed to load story-level work items:', error);
             return [];
         }
     }

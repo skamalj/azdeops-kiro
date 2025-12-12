@@ -8,7 +8,8 @@ export class ScrumDashboard {
 
   constructor(
     private apiClient: AzureDevOpsApiClient,
-    private authService: AuthenticationService
+    private authService: AuthenticationService,
+    private projectManager?: any // Will be injected from extension.ts
   ) {}
 
   async showDashboard(): Promise<void> {
@@ -75,15 +76,23 @@ export class ScrumDashboard {
 
   private async getCurrentSprintWorkItems(): Promise<WorkItem[]> {
     try {
-      // Query for current sprint work items
+      // Get current project context
+      const currentProject = this.projectManager?.getCurrentProject();
+      if (!currentProject) {
+        throw new Error('No project selected. Please select a project first.');
+      }
+
+      const projectContext = this.projectManager?.getCurrentProjectContext();
+      const workItemTypes = this.getRelevantWorkItemTypes(projectContext);
+
+      // Query for current sprint work items using the actual project name
       const wiql = `
         SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], 
                [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], 
                [Microsoft.VSTS.Scheduling.RemainingWork]
         FROM WorkItems 
-        WHERE [System.TeamProject] = @project 
-        AND [System.IterationPath] UNDER @currentIteration
-        AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
+        WHERE [System.TeamProject] = '${currentProject.name}'
+        AND [System.WorkItemType] IN (${workItemTypes.map(type => `'${type}'`).join(', ')})
         ORDER BY [System.Id]
       `;
 
@@ -135,18 +144,22 @@ export class ScrumDashboard {
   }
 
   private calculateSprintProgress(workItems: WorkItem[]): SprintProgress {
-    const userStories = workItems.filter(wi => wi.type === 'User Story');
+    // Get story-level work items (User Story, Epic, Issue, or Product Backlog Item)
+    const storyLevelItems = workItems.filter(wi => 
+      ['User Story', 'Epic', 'Issue', 'Product Backlog Item'].includes(wi.type)
+    );
     const tasks = workItems.filter(wi => wi.type === 'Task');
 
-    const totalStoryPoints = userStories.reduce((sum, story) => sum + (story.storyPoints || 0), 0);
-    const completedStoryPoints = userStories
-      .filter(story => story.state === 'Closed' || story.state === 'Done')
+    const totalStoryPoints = storyLevelItems.reduce((sum, story) => sum + (story.storyPoints || 0), 0);
+    const completedStoryPoints = storyLevelItems
+      .filter(story => this.isWorkItemCompleted(story))
       .reduce((sum, story) => sum + (story.storyPoints || 0), 0);
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => task.state === 'Closed' || task.state === 'Done').length;
+    const completedTasks = tasks.filter(task => this.isWorkItemCompleted(task)).length;
 
-    const completionPercentage = totalStoryPoints > 0 ? (completedStoryPoints / totalStoryPoints) * 100 : 0;
+    const completionPercentage = totalStoryPoints > 0 ? (completedStoryPoints / totalStoryPoints) * 100 : 
+                                totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
     return {
       totalStoryPoints,
@@ -158,6 +171,12 @@ export class ScrumDashboard {
       daysRemaining: this.calculateDaysRemaining(),
       completionPercentage
     };
+  }
+
+  private isWorkItemCompleted(workItem: WorkItem): boolean {
+    // Common completed states across different process templates
+    const completedStates = ['Closed', 'Done', 'Resolved', 'Completed'];
+    return completedStates.includes(workItem.state);
   }
 
   private async calculateTeamVelocity(): Promise<TeamVelocity> {
@@ -172,10 +191,128 @@ export class ScrumDashboard {
   }
 
   private async calculateBurndownData(workItems: WorkItem[]): Promise<BurndownData> {
-    // Simplified burndown calculation
-    // In a full implementation, this would track daily progress
+    try {
+      // Calculate total work based on story points and remaining work
+      const totalStoryPoints = workItems
+        .filter(wi => ['Epic', 'User Story', 'Issue', 'Product Backlog Item'].includes(wi.type))
+        .reduce((sum, wi) => sum + (wi.storyPoints || 0), 0);
+      
+      const totalRemainingWork = workItems
+        .filter(wi => wi.type === 'Task')
+        .reduce((sum, wi) => sum + (wi.remainingWork || 0), 0);
+      
+      // Use story points if available, otherwise use remaining work, fallback to work item count
+      const totalWork = totalStoryPoints > 0 ? totalStoryPoints : 
+                       totalRemainingWork > 0 ? totalRemainingWork : 
+                       workItems.length;
+
+      // Get sprint duration (default to 2 weeks = 10 working days)
+      const sprintDays = 10;
+      const sprintStartDate = new Date();
+      sprintStartDate.setDate(sprintStartDate.getDate() - sprintDays);
+      
+      // Generate dates for the sprint
+      const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
+        const date = new Date(sprintStartDate);
+        date.setDate(date.getDate() + i);
+        return date.toISOString().split('T')[0];
+      });
+
+      // Calculate ideal burndown (linear)
+      const idealBurndown = dates.map((_, i) => Math.max(0, totalWork - (totalWork / sprintDays) * i));
+      
+      // Calculate actual burndown based on completed work
+      const completedWork = await this.calculateCompletedWork(workItems);
+      const actualBurndown = await this.calculateActualBurndownFromHistory(workItems, dates, totalWork);
+      
+      // Calculate remaining work based on current state
+      const currentRemainingWork = totalWork - completedWork;
+      const remainingWork = dates.map((_, i) => {
+        if (i === dates.length - 1) {
+          // Last day - use actual remaining work
+          return Math.max(0, currentRemainingWork);
+        } else {
+          // Historical data - estimate based on completion rate
+          const dayProgress = i / (dates.length - 1);
+          const estimatedCompleted = completedWork * dayProgress;
+          return Math.max(0, totalWork - estimatedCompleted);
+        }
+      });
+
+      return {
+        dates,
+        idealBurndown,
+        actualBurndown,
+        remainingWork
+      };
+    } catch (error) {
+      console.error('Error calculating burndown data:', error);
+      // Fallback to simple calculation if detailed tracking fails
+      return this.calculateSimpleBurndown(workItems);
+    }
+  }
+
+  private async calculateCompletedWork(workItems: WorkItem[]): Promise<number> {
+    const completedStoryPoints = workItems
+      .filter(wi => ['Epic', 'User Story', 'Issue', 'Product Backlog Item'].includes(wi.type))
+      .filter(wi => this.isWorkItemCompleted(wi))
+      .reduce((sum, wi) => sum + (wi.storyPoints || 0), 0);
+    
+    const completedTasks = workItems
+      .filter(wi => wi.type === 'Task')
+      .filter(wi => this.isWorkItemCompleted(wi)).length;
+    
+    // Return story points if available, otherwise task count
+    return completedStoryPoints > 0 ? completedStoryPoints : completedTasks;
+  }
+
+  private async calculateActualBurndownFromHistory(workItems: WorkItem[], dates: string[], totalWork: number): Promise<number[]> {
+    // This is a simplified version - in a full implementation, you would:
+    // 1. Query Azure DevOps work item history/revisions API
+    // 2. Track state changes over time
+    // 3. Calculate daily completion rates
+    
+    // For now, we'll estimate based on current completion and work item change dates
+    const completedWork = await this.calculateCompletedWork(workItems);
+    const completionRate = totalWork > 0 ? completedWork / totalWork : 0;
+    
+    return dates.map((date, i) => {
+      const dayProgress = i / (dates.length - 1);
+      
+      // Estimate actual progress with some realistic variation
+      let actualProgress;
+      if (dayProgress === 0) {
+        actualProgress = 0; // Sprint start
+      } else if (dayProgress === 1) {
+        actualProgress = completedWork; // Current state
+      } else {
+        // Estimate progress with typical sprint curve (slow start, faster middle, slower end)
+        const sprintCurve = this.getSprintProgressCurve(dayProgress);
+        actualProgress = completedWork * sprintCurve;
+      }
+      
+      return Math.max(0, totalWork - actualProgress);
+    });
+  }
+
+  private getSprintProgressCurve(progress: number): number {
+    // Typical sprint progress follows an S-curve
+    // Slow start (planning, setup), faster middle (development), slower end (testing, polish)
+    if (progress <= 0.2) {
+      // First 20% of sprint - slow start
+      return progress * 0.5;
+    } else if (progress <= 0.8) {
+      // Middle 60% of sprint - faster progress
+      return 0.1 + (progress - 0.2) * 1.2;
+    } else {
+      // Last 20% of sprint - slower finish
+      return 0.82 + (progress - 0.8) * 0.9;
+    }
+  }
+
+  private calculateSimpleBurndown(workItems: WorkItem[]): BurndownData {
     const totalWork = workItems.reduce((sum, wi) => sum + (wi.remainingWork || wi.storyPoints || 1), 0);
-    const sprintDays = 10; // Assume 2-week sprint
+    const sprintDays = 10;
     
     const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
       const date = new Date();
@@ -183,9 +320,13 @@ export class ScrumDashboard {
       return date.toISOString().split('T')[0];
     });
 
-    const idealBurndown = dates.map((_, i) => totalWork - (totalWork / sprintDays) * i);
-    const actualBurndown = dates.map((_, i) => Math.max(0, totalWork - (totalWork / sprintDays) * i * (0.8 + Math.random() * 0.4)));
-    const remainingWork = dates.map((_, i) => Math.max(0, totalWork - (totalWork / sprintDays) * i * 0.9));
+    const idealBurndown = dates.map((_, i) => Math.max(0, totalWork - (totalWork / sprintDays) * i));
+    const completedWork = workItems.filter(wi => this.isWorkItemCompleted(wi)).length;
+    const actualBurndown = dates.map((_, i) => {
+      const progress = i / sprintDays;
+      return Math.max(0, totalWork - (completedWork * progress));
+    });
+    const remainingWork = dates.map(() => Math.max(0, totalWork - completedWork));
 
     return {
       dates,
@@ -221,6 +362,43 @@ export class ScrumDashboard {
     const dayOfWeek = now.getDay(); // 0 = Sunday, 5 = Friday
     const daysUntilFriday = dayOfWeek <= 5 ? 5 - dayOfWeek : 7 - dayOfWeek + 5;
     return Math.max(0, daysUntilFriday);
+  }
+
+  private getRelevantWorkItemTypes(projectContext: any): string[] {
+    // If we have project context with work item types, use those
+    if (projectContext?.workItemTypes) {
+      const availableTypes = projectContext.workItemTypes.map((wit: any) => wit.name);
+      
+      // Return relevant types for scrum metrics based on what's available
+      const relevantTypes: string[] = [];
+      
+      // Add story-level work items
+      if (availableTypes.includes('User Story')) {
+        relevantTypes.push('User Story');
+      } else if (availableTypes.includes('Epic')) {
+        relevantTypes.push('Epic');
+      } else if (availableTypes.includes('Issue')) {
+        relevantTypes.push('Issue');
+      }
+      
+      // Always include Task if available
+      if (availableTypes.includes('Task')) {
+        relevantTypes.push('Task');
+      }
+      
+      // Include Bug if available
+      if (availableTypes.includes('Bug')) {
+        relevantTypes.push('Bug');
+      }
+      
+      return relevantTypes.length > 0 ? relevantTypes : ['Task']; // Fallback to Task
+    }
+    
+    // Fallback: try to detect based on common patterns
+    // For Basic process template (like azdevops-kiro): Epic, Issue, Task
+    // For Agile process template: User Story, Task, Bug
+    // For Scrum process template: Product Backlog Item, Task, Bug
+    return ['Epic', 'Issue', 'Task', 'User Story', 'Bug', 'Product Backlog Item'];
   }
 
   private mapAzureWorkItemToWorkItem(azureWorkItem: any): WorkItem {
@@ -307,6 +485,13 @@ export class ScrumDashboard {
             position: relative;
             height: 300px;
             margin-top: 15px;
+            background-color: var(--vscode-editor-widget-background);
+            border-radius: 4px;
+            padding: 10px;
+        }
+        
+        .chart-container canvas {
+            background-color: transparent !important;
         }
         .distribution-item {
             display: flex;
@@ -434,6 +619,17 @@ export class ScrumDashboard {
     </div>
 
     <script>
+        // Get VS Code theme colors with fallbacks
+        const getThemeColor = (cssVar, fallback) => {
+            const style = getComputedStyle(document.body);
+            const color = style.getPropertyValue(cssVar).trim();
+            return color || fallback;
+        };
+        
+        const foregroundColor = getThemeColor('--vscode-foreground', '#ffffff');
+        const borderColor = getThemeColor('--vscode-widget-border', '#404040');
+        const backgroundColor = getThemeColor('--vscode-editor-widget-background', '#2d2d30');
+        
         // Burndown Chart
         const ctx = document.getElementById('burndownChart').getContext('2d');
         new Chart(ctx, {
@@ -474,25 +670,59 @@ export class ScrumDashboard {
                 plugins: {
                     legend: {
                         labels: {
-                            color: 'var(--vscode-foreground)'
+                            color: foregroundColor,
+                            font: {
+                                size: 12
+                            },
+                            usePointStyle: true,
+                            padding: 15
                         }
+                    },
+                    tooltip: {
+                        backgroundColor: backgroundColor,
+                        titleColor: foregroundColor,
+                        bodyColor: foregroundColor,
+                        borderColor: borderColor,
+                        borderWidth: 1
                     }
                 },
                 scales: {
                     x: {
                         ticks: {
-                            color: 'var(--vscode-foreground)'
+                            color: foregroundColor,
+                            font: {
+                                size: 12
+                            }
                         },
                         grid: {
-                            color: 'var(--vscode-widget-border)'
+                            color: borderColor
+                        },
+                        title: {
+                            display: true,
+                            text: 'Sprint Days',
+                            color: foregroundColor,
+                            font: {
+                                size: 14
+                            }
                         }
                     },
                     y: {
                         ticks: {
-                            color: 'var(--vscode-foreground)'
+                            color: foregroundColor,
+                            font: {
+                                size: 12
+                            }
                         },
                         grid: {
-                            color: 'var(--vscode-widget-border)'
+                            color: borderColor
+                        },
+                        title: {
+                            display: true,
+                            text: 'Work Remaining',
+                            color: foregroundColor,
+                            font: {
+                                size: 14
+                            }
                         }
                     }
                 }
