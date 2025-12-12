@@ -1,111 +1,61 @@
 # Azure DevOps Power for Kiro
 
-A complete Kiro Power implementation that provides Azure DevOps integration through MCP servers.
-
-## Quick Setup
-
-### 1. Build the Power
-```bash
-cd power
-npm install
-npm run build
-```
-
-### 2. Configure Environment Variables
-```bash
-export AZURE_DEVOPS_ORG_URL="https://dev.azure.com/yourorg"
-export AZURE_DEVOPS_PROJECT="YourProjectName"
-export AZURE_DEVOPS_PAT="your-personal-access-token"
-```
-
-### 3. Test the MCP Server
-```bash
-npm run start:core
-```
-
-## Available Commands
-
-Once activated in Kiro, you can use natural language commands like:
-
-- **"Create a user story titled 'User login feature' with 8 story points"**
-- **"Create a task titled 'Implement authentication' with 6 hours remaining work"**
-- **"Show me all active user stories"**
-- **"Update work item #123 to set state to Done"**
-- **"Get details for work item #456"**
-
-## MCP Server Configuration
-
-Add this to your Kiro MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "azure-devops-core": {
-      "command": "node",
-      "args": ["path/to/power/dist/index.js", "azure-devops-core"],
-      "env": {
-        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/yourorg",
-        "AZURE_DEVOPS_PROJECT": "YourProject", 
-        "AZURE_DEVOPS_PAT": "your-personal-access-token"
-      }
-    }
-  }
-}
-```
+A comprehensive Kiro Power that provides Azure DevOps work item management through MCP (Model Context Protocol) servers.
 
 ## Features
 
-✅ **Complete Work Item Management**
-- Create user stories with story points
-- Create tasks (independent or linked to stories)
-- Update work items with patch operations
-- Query and filter work items
-- Get detailed work item information
+- **Work Item Management**: Create, read, update user stories and tasks
+- **Test Case Management**: Create and execute test cases with test plans
+- **Multi-Project Support**: Switch between different Azure DevOps projects
+- **Scrum Dashboard**: Get sprint metrics and team velocity analytics
+- **Natural Language Interface**: Conversational work item management
 
-✅ **Robust Error Handling**
-- Authentication validation
-- Network error recovery
-- Input validation with clear messages
-- Rate limiting support
+## Installation
 
-✅ **Production Ready**
-- TypeScript implementation
-- Comprehensive type definitions
-- Built-in logging and debugging
-- Environment-based configuration
+### From GitHub
+1. In Kiro, go to Powers panel
+2. Click "Install from GitHub"
+3. Enter repository: `skamalj/azdeops-kiro`
+4. Specify path: `power`
+5. Branch: `main`
 
-## Project Structure
+### Manual Installation
+1. Clone the repository
+2. Navigate to the `power/` directory
+3. Run `npm install && npm run build`
+4. Add to Kiro Powers from this directory
 
-```
-power/
-├── src/
-│   ├── mcp-servers/azure-devops-core.ts    # Main MCP server
-│   ├── services/AzureDevOpsApiClient.ts    # Azure DevOps API client
-│   ├── types/index.ts                      # Type definitions
-│   └── index.ts                            # Entry point
-├── steering/                               # Usage guides
-├── dist/                                   # Compiled JavaScript
-├── POWER.md                                # Complete documentation
-└── package.json                            # Configuration
-```
+## Configuration
 
-## Documentation
+Set these environment variables:
+- `AZURE_DEVOPS_ORG_URL`: Your Azure DevOps organization URL
+- `AZURE_DEVOPS_PROJECT`: Your project name
+- `AZURE_DEVOPS_PAT`: Your Personal Access Token
 
-- **POWER.md** - Complete power documentation
-- **steering/getting-started.md** - Basic usage guide
-- **steering/advanced-usage.md** - Advanced patterns and workflows
+## Usage
 
-## Comparison with VS Code Extension
+Once installed and configured, you can use natural language commands:
 
-| Feature | VS Code Extension | Kiro Power |
-|---------|------------------|------------|
-| Work Item Creation | ✅ | ✅ |
-| Work Item Updates | ✅ | ✅ |
-| Hierarchical Tasks | ✅ | ✅ |
-| Tree View | ✅ | N/A (Chat-based) |
-| Command Palette | ✅ | N/A (Natural language) |
-| Authentication | VS Code Settings | Environment Variables |
-| Interface | GUI | Natural Language |
-| Integration | VS Code Only | Any Kiro-enabled environment |
+- "Show me all work items from Azure DevOps"
+- "Create a user story: As a user, I want to login"
+- "List all projects in my organization"
+- "Create a test case for login functionality"
+- "Show me scrum metrics for the current project"
 
-Both implementations provide the same core functionality with different interaction models suited to their respective environments.
+## MCP Tools
+
+This power provides 10 MCP tools:
+- `create_user_story`
+- `create_task`
+- `get_work_items`
+- `update_work_item`
+- `get_work_item`
+- `create_test_case`
+- `create_test_plan`
+- `get_projects`
+- `switch_project`
+- `get_scrum_metrics`
+
+## License
+
+MIT License

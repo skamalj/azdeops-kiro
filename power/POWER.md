@@ -1,3 +1,16 @@
+---
+name: "Azure DevOps Power"
+description: "Comprehensive Azure DevOps work item management through MCP servers"
+version: "1.0.0"
+author: "Azure DevOps Integration Team"
+keywords: ["azure-devops", "work-items", "scrum", "project-management", "test-cases"]
+mcpServers:
+  - name: "azure-devops-core"
+    description: "Core Azure DevOps work item management server"
+    command: "node"
+    args: ["dist/index.js", "azure-devops-core"]
+---
+
 # Azure DevOps Power
 
 A comprehensive Kiro Power for Azure DevOps integration, providing seamless work item management through MCP servers.

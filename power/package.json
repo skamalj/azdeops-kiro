@@ -21,6 +21,20 @@
   ],
   "author": "Kiro Team",
   "license": "MIT",
+  "kiro": {
+    "type": "power",
+    "displayName": "Azure DevOps Power",
+    "description": "Comprehensive Azure DevOps work item management through MCP servers",
+    "version": "1.0.0",
+    "mcpServers": [
+      {
+        "name": "azure-devops-core",
+        "description": "Core Azure DevOps work item management server",
+        "command": "node",
+        "args": ["dist/index.js", "azure-devops-core"]
+      }
+    ]
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
