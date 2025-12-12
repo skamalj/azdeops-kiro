@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "azure-devops-core": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "tsx",
-        "https://raw.githubusercontent.com/skamalj/azdeops-kiro/main/mcp-server/index.ts"
+        "../mcp-server/index.js"
       ],
       "env": {
         "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",

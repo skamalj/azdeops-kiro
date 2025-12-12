@@ -86,17 +86,22 @@ This power includes the following MCP servers:
 - Kiro IDE with Powers support
 - Azure DevOps organization access
 - Personal Access Token with "Work Items (Read & Write)" permissions
-- Node.js and npm installed
-- `tsx` package for TypeScript execution
+- Node.js installed
 
 ### Install Power
-1. Install the power from GitHub in Kiro Powers panel
-2. The power will automatically configure the MCP server
-3. Set your environment variables (see Configuration section)
-4. Restart Kiro to activate the power
+1. Clone or download the repository: `git clone https://github.com/skamalj/azdeops-kiro.git`
+2. Install the power from the local `power/` directory in Kiro Powers panel
+3. The MCP server will reference the `mcp-server/` directory
+4. Set your environment variables (see Configuration section)
+5. Restart Kiro to activate the power
 
-### Automatic Configuration
-This power automatically configures the MCP server using the included `mcp.json` file. The server will be available as `azure-devops-core` once you set the required environment variables.
+### MCP Server Setup
+The power uses a local MCP server located in the `mcp-server/` directory. The server requires the `@modelcontextprotocol/sdk` package to be available. Install it by running:
+
+```bash
+cd mcp-server
+npm install
+```
 
 ## Usage
 

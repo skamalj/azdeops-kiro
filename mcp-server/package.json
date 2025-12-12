@@ -3,13 +3,11 @@
   "version": "1.0.0",
   "description": "MCP server for Azure DevOps integration",
   "type": "module",
-  "main": "index.ts",
+  "main": "index.js",
   "scripts": {
-    "start": "tsx index.ts"
+    "start": "node index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
-    "zod": "^3.22.0",
-    "tsx": "^4.0.0"
+    "@modelcontextprotocol/sdk": "^0.5.0"
   }
 }
