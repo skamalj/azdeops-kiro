@@ -1,14 +1,13 @@
 ---
-name: "Azure DevOps Power"
-description: "Comprehensive Azure DevOps work item management through MCP servers"
-version: "1.0.0"
-author: "Azure DevOps Integration Team"
-keywords: ["azure-devops", "work-items", "scrum", "project-management", "test-cases"]
-mcpServers:
-  - name: "azure-devops-core"
-    description: "Core Azure DevOps work item management server"
-    command: "node"
-    args: ["dist/index.js", "azure-devops-core"]
+name: azure-devops-power
+description: Comprehensive Azure DevOps work item management through MCP servers
+version: 1.0.0
+author: Azure DevOps Integration Team
+keywords:
+  - azure-devops
+  - work-items
+  - scrum
+  - mcp
 ---
 
 # Azure DevOps Power
@@ -87,31 +86,17 @@ This power includes the following MCP servers:
 - Kiro IDE with Powers support
 - Azure DevOps organization access
 - Personal Access Token with "Work Items (Read & Write)" permissions
+- Node.js and npm installed
+- `tsx` package for TypeScript execution
 
 ### Install Power
-1. Copy the power directory to your Kiro Powers location
-2. Install dependencies: `npm install`
-3. Build the power: `npm run build`
-4. Activate in Kiro Powers panel
+1. Install the power from GitHub in Kiro Powers panel
+2. The power will automatically configure the MCP server
+3. Set your environment variables (see Configuration section)
+4. Restart Kiro to activate the power
 
-### Configure MCP Server
-Add to your Kiro MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "azure-devops-core": {
-      "command": "node",
-      "args": ["path/to/power/dist/index.js", "azure-devops-core"],
-      "env": {
-        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/yourorg",
-        "AZURE_DEVOPS_PROJECT": "YourProject",
-        "AZURE_DEVOPS_PAT": "your-personal-access-token"
-      }
-    }
-  }
-}
-```
+### Automatic Configuration
+This power automatically configures the MCP server using the included `mcp.json` file. The server will be available as `azure-devops-core` once you set the required environment variables.
 
 ## Usage
 
@@ -239,44 +224,17 @@ The power includes comprehensive error handling:
 - **Validation Errors**: Specific field-level error messages
 - **Rate Limiting**: Automatic throttling and retry logic
 
-## Development
-
-### Building from Source
-```bash
-cd power/
-npm install
-npm run build
-```
-
-### Running Tests
-```bash
-npm test
-```
-
-### Development Mode
-```bash
-npm run dev  # Watch mode compilation
-```
-
-### Project Structure
+## Power Structure
 ```
 power/
-├── src/                          # TypeScript source
-│   ├── mcp-servers/             # MCP server implementations
-│   │   └── azure-devops-core.ts
-│   ├── services/                # API client services
-│   │   └── AzureDevOpsApiClient.ts
-│   ├── types/                   # TypeScript type definitions
-│   │   └── index.ts
-│   └── index.ts                 # Main entry point
-├── steering/                     # Workflow guides
-│   ├── getting-started.md
-│   └── advanced-usage.md
-├── dist/                         # Compiled JavaScript
-├── POWER.md                      # This documentation
-├── package.json                  # Power configuration
-└── tsconfig.json                 # TypeScript configuration
+├── POWER.md                      # This documentation with frontmatter
+├── mcp.json                      # MCP server configuration
+└── steering/                     # Workflow guides
+    ├── getting-started.md
+    └── advanced-usage.md
 ```
+
+This power follows Kiro's strict requirements and only contains allowed files.
 
 ## Troubleshooting
 

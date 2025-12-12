@@ -2,6 +2,13 @@
 
 This guide will help you get started with the Azure DevOps Power for Kiro.
 
+## Installation
+
+1. Install the power from GitHub: `skamalj/azdeops-kiro/power`
+2. The power automatically configures the MCP server
+3. Set environment variables (see below)
+4. Restart Kiro
+
 ## Prerequisites
 
 Before using this power, you need:
@@ -9,6 +16,7 @@ Before using this power, you need:
 1. **Azure DevOps Organization**: Access to an Azure DevOps organization
 2. **Personal Access Token (PAT)**: A PAT with "Work Items (Read & Write)" permissions
 3. **Project Access**: Access to at least one Azure DevOps project
+4. **Node.js**: For running the MCP server
 
 ## Environment Setup
 

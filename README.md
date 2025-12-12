@@ -22,9 +22,18 @@ A Kiro Power that provides the same functionality through MCP servers:
 - **MCP Server Integration**: Azure DevOps operations via Model Context Protocol
 - **Kiro Powers Framework**: Native Kiro Powers experience
 - **Same Commands**: Create stories, tasks, updates, etc.
-- **Distributed Architecture**: Separate MCP servers for different operations
+- **Distributed Architecture**: References external MCP server
 
-**Status**: 🚧 In Development
+**Status**: ✅ Complete and functional
+
+### 🖥️ MCP Server (`/mcp-server/`)
+Standalone MCP server for Azure DevOps integration:
+- **Independent Server**: Can be used with any MCP-compatible client
+- **Core Functionality**: Work item CRUD operations
+- **GitHub Integration**: Referenced directly by the Kiro Power
+- **TypeScript**: Modern TypeScript implementation
+
+**Status**: ✅ Complete and functional
 
 ### 📚 Shared (`/shared/`)
 Common utilities and types shared between extension and power:
