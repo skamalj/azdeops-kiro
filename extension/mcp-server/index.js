@@ -77,6 +77,48 @@ const ExecuteTestCaseSchema = zod_1.z.object({
     comment: zod_1.z.string().optional(),
     executedBy: zod_1.z.string(),
 });
+// Batch operation schemas
+const BatchCreateUserStoriesSchema = zod_1.z.object({
+    stories: zod_1.z.array(zod_1.z.object({
+        title: zod_1.z.string().min(1, 'Title is required'),
+        description: zod_1.z.string().optional(),
+        storyPoints: zod_1.z.number().int().min(1).max(21).optional(),
+    })),
+    batchSize: zod_1.z.number().int().min(1).max(50).default(10),
+});
+const BatchCreateTasksSchema = zod_1.z.object({
+    tasks: zod_1.z.array(zod_1.z.object({
+        title: zod_1.z.string().min(1, 'Title is required'),
+        description: zod_1.z.string().optional(),
+        remainingWork: zod_1.z.number().min(0).optional(),
+        parentId: zod_1.z.number().int().positive().optional(),
+    })),
+    batchSize: zod_1.z.number().int().min(1).max(50).default(10),
+});
+const BatchCreateTestCasesSchema = zod_1.z.object({
+    testCases: zod_1.z.array(zod_1.z.object({
+        title: zod_1.z.string().min(1, 'Title is required'),
+        description: zod_1.z.string().optional(),
+        steps: zod_1.z.array(zod_1.z.object({
+            stepNumber: zod_1.z.number().int().positive(),
+            action: zod_1.z.string(),
+            expectedResult: zod_1.z.string(),
+        })),
+        priority: zod_1.z.enum(['Critical', 'High', 'Medium', 'Low']).default('Medium'),
+        testPlanId: zod_1.z.number().int().positive().optional(),
+    })),
+    batchSize: zod_1.z.number().int().min(1).max(50).default(10),
+});
+const BatchCreateTestPlansSchema = zod_1.z.object({
+    testPlans: zod_1.z.array(zod_1.z.object({
+        name: zod_1.z.string().min(1, 'Name is required'),
+        description: zod_1.z.string().optional(),
+        areaPath: zod_1.z.string(),
+        iterationPath: zod_1.z.string(),
+        projectId: zod_1.z.string(),
+    })),
+    batchSize: zod_1.z.number().int().min(1).max(20).default(5),
+});
 class AzureDevOpsApiClient {
     organizationUrl = '';
     projectName = '';
@@ -652,6 +694,114 @@ class AzureDevOpsCoreServer {
                             required: ['testCaseId', 'outcome', 'executedBy'],
                         },
                     },
+                    {
+                        name: 'batch_create_user_stories',
+                        description: 'Create multiple user stories in batches',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                stories: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            title: { type: 'string', description: 'User story title' },
+                                            description: { type: 'string', description: 'Detailed description' },
+                                            storyPoints: { type: 'number', description: 'Story points (1-21)', minimum: 1, maximum: 21 },
+                                        },
+                                        required: ['title'],
+                                    },
+                                },
+                                batchSize: { type: 'number', description: 'Batch size (1-50)', minimum: 1, maximum: 50, default: 10 },
+                            },
+                            required: ['stories'],
+                        },
+                    },
+                    {
+                        name: 'batch_create_tasks',
+                        description: 'Create multiple tasks in batches',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                tasks: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            title: { type: 'string', description: 'Task title' },
+                                            description: { type: 'string', description: 'Detailed description' },
+                                            remainingWork: { type: 'number', description: 'Remaining work in hours', minimum: 0 },
+                                            parentId: { type: 'number', description: 'Parent work item ID (optional)' },
+                                        },
+                                        required: ['title'],
+                                    },
+                                },
+                                batchSize: { type: 'number', description: 'Batch size (1-50)', minimum: 1, maximum: 50, default: 10 },
+                            },
+                            required: ['tasks'],
+                        },
+                    },
+                    {
+                        name: 'batch_create_test_cases',
+                        description: 'Create multiple test cases in batches',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                testCases: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            title: { type: 'string', description: 'Test case title' },
+                                            description: { type: 'string', description: 'Test case description' },
+                                            steps: {
+                                                type: 'array',
+                                                items: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        stepNumber: { type: 'number' },
+                                                        action: { type: 'string' },
+                                                        expectedResult: { type: 'string' },
+                                                    },
+                                                    required: ['stepNumber', 'action', 'expectedResult'],
+                                                },
+                                            },
+                                            priority: { type: 'string', enum: ['Critical', 'High', 'Medium', 'Low'], default: 'Medium' },
+                                            testPlanId: { type: 'number', description: 'Test plan ID (optional)' },
+                                        },
+                                        required: ['title', 'steps'],
+                                    },
+                                },
+                                batchSize: { type: 'number', description: 'Batch size (1-50)', minimum: 1, maximum: 50, default: 10 },
+                            },
+                            required: ['testCases'],
+                        },
+                    },
+                    {
+                        name: 'batch_create_test_plans',
+                        description: 'Create multiple test plans in batches',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                testPlans: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            name: { type: 'string', description: 'Test plan name' },
+                                            description: { type: 'string', description: 'Test plan description' },
+                                            areaPath: { type: 'string', description: 'Area path' },
+                                            iterationPath: { type: 'string', description: 'Iteration path' },
+                                            projectId: { type: 'string', description: 'Project ID' },
+                                        },
+                                        required: ['name', 'areaPath', 'iterationPath', 'projectId'],
+                                    },
+                                },
+                                batchSize: { type: 'number', description: 'Batch size (1-20)', minimum: 1, maximum: 20, default: 5 },
+                            },
+                            required: ['testPlans'],
+                        },
+                    },
                 ],
             };
         });
@@ -683,6 +833,14 @@ class AzureDevOpsCoreServer {
                         return await this.getTestPlans(args);
                     case 'execute_test_case':
                         return await this.executeTestCase(args);
+                    case 'batch_create_user_stories':
+                        return await this.batchCreateUserStories(args);
+                    case 'batch_create_tasks':
+                        return await this.batchCreateTasks(args);
+                    case 'batch_create_test_cases':
+                        return await this.batchCreateTestCases(args);
+                    case 'batch_create_test_plans':
+                        return await this.batchCreateTestPlans(args);
                     default:
                         throw new Error(`Unknown tool: ${name}`);
                 }
@@ -903,6 +1061,182 @@ class AzureDevOpsCoreServer {
                 {
                     type: 'text',
                     text: `✅ Test Case #${testCaseId} executed successfully\n\nExecution Details:\n- Test Case: #${testCase.id} - ${testCase.title}\n- Outcome: ${outcome}\n- Executed By: ${executedBy}\n- Comment: ${comment || 'No comment'}\n- Execution Date: ${new Date().toLocaleDateString()}`,
+                },
+            ],
+        };
+    }
+    async batchCreateUserStories(args) {
+        this.ensureInitialized();
+        const { stories, batchSize } = BatchCreateUserStoriesSchema.parse(args);
+        const results = [];
+        const errors = [];
+        for (let i = 0; i < stories.length; i += batchSize) {
+            const batch = stories.slice(i, i + batchSize);
+            console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(stories.length / batchSize)} (${batch.length} user stories)`);
+            const batchPromises = batch.map(async (story, index) => {
+                try {
+                    const result = await this.apiClient.createWorkItem("User Story", story);
+                    return { index: i + index, success: true, result, story: story.title };
+                }
+                catch (error) {
+                    return { index: i + index, success: false, error: error instanceof Error ? error.message : 'Unknown error', story: story.title };
+                }
+            });
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.push(result);
+                }
+                else {
+                    errors.push(result);
+                }
+            });
+            // Rate limiting: wait between batches
+            if (i + batchSize < stories.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        const successCount = results.length;
+        const errorCount = errors.length;
+        const successList = results.map(r => `- #${r.result.id}: ${r.story}`).join('\n');
+        const errorList = errors.length > 0 ? `\n\nErrors:\n${errors.map(e => `- ${e.story}: ${e.error}`).join('\n')}` : '';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Batch User Story Creation Complete\n\nSummary:\n- Total requested: ${stories.length}\n- Successfully created: ${successCount}\n- Errors: ${errorCount}\n\nCreated User Stories:\n${successList}${errorList}`,
+                },
+            ],
+        };
+    }
+    async batchCreateTasks(args) {
+        this.ensureInitialized();
+        const { tasks, batchSize } = BatchCreateTasksSchema.parse(args);
+        const results = [];
+        const errors = [];
+        for (let i = 0; i < tasks.length; i += batchSize) {
+            const batch = tasks.slice(i, i + batchSize);
+            console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(tasks.length / batchSize)} (${batch.length} tasks)`);
+            const batchPromises = batch.map(async (task, index) => {
+                try {
+                    const result = await this.apiClient.createWorkItem("Task", task, task.parentId);
+                    return { index: i + index, success: true, result, task: task.title };
+                }
+                catch (error) {
+                    return { index: i + index, success: false, error: error instanceof Error ? error.message : 'Unknown error', task: task.title };
+                }
+            });
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.push(result);
+                }
+                else {
+                    errors.push(result);
+                }
+            });
+            // Rate limiting: wait between batches
+            if (i + batchSize < tasks.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        const successCount = results.length;
+        const errorCount = errors.length;
+        const successList = results.map(r => `- #${r.result.id}: ${r.task}${r.result.parentId ? ` (parent: #${r.result.parentId})` : ''}`).join('\n');
+        const errorList = errors.length > 0 ? `\n\nErrors:\n${errors.map(e => `- ${e.task}: ${e.error}`).join('\n')}` : '';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Batch Task Creation Complete\n\nSummary:\n- Total requested: ${tasks.length}\n- Successfully created: ${successCount}\n- Errors: ${errorCount}\n\nCreated Tasks:\n${successList}${errorList}`,
+                },
+            ],
+        };
+    }
+    async batchCreateTestCases(args) {
+        this.ensureInitialized();
+        const { testCases, batchSize } = BatchCreateTestCasesSchema.parse(args);
+        const results = [];
+        const errors = [];
+        for (let i = 0; i < testCases.length; i += batchSize) {
+            const batch = testCases.slice(i, i + batchSize);
+            console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(testCases.length / batchSize)} (${batch.length} test cases)`);
+            const batchPromises = batch.map(async (testCase, index) => {
+                try {
+                    const result = await this.apiClient.createTestCase(testCase, testCase.testPlanId);
+                    return { index: i + index, success: true, result, testCase: testCase.title };
+                }
+                catch (error) {
+                    return { index: i + index, success: false, error: error instanceof Error ? error.message : 'Unknown error', testCase: testCase.title };
+                }
+            });
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.push(result);
+                }
+                else {
+                    errors.push(result);
+                }
+            });
+            // Rate limiting: wait between batches
+            if (i + batchSize < testCases.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        const successCount = results.length;
+        const errorCount = errors.length;
+        const successList = results.map(r => `- #${r.result.id}: ${r.testCase}`).join('\n');
+        const errorList = errors.length > 0 ? `\n\nErrors:\n${errors.map(e => `- ${e.testCase}: ${e.error}`).join('\n')}` : '';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Batch Test Case Creation Complete\n\nSummary:\n- Total requested: ${testCases.length}\n- Successfully created: ${successCount}\n- Errors: ${errorCount}\n\nCreated Test Cases:\n${successList}${errorList}`,
+                },
+            ],
+        };
+    }
+    async batchCreateTestPlans(args) {
+        this.ensureInitialized();
+        const { testPlans, batchSize } = BatchCreateTestPlansSchema.parse(args);
+        const results = [];
+        const errors = [];
+        for (let i = 0; i < testPlans.length; i += batchSize) {
+            const batch = testPlans.slice(i, i + batchSize);
+            console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(testPlans.length / batchSize)} (${batch.length} test plans)`);
+            const batchPromises = batch.map(async (testPlan, index) => {
+                try {
+                    const result = await this.apiClient.createTestPlan(testPlan);
+                    return { index: i + index, success: true, result, testPlan: testPlan.name };
+                }
+                catch (error) {
+                    return { index: i + index, success: false, error: error instanceof Error ? error.message : 'Unknown error', testPlan: testPlan.name };
+                }
+            });
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(result => {
+                if (result.success) {
+                    results.push(result);
+                }
+                else {
+                    errors.push(result);
+                }
+            });
+            // Rate limiting: wait between batches
+            if (i + batchSize < testPlans.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        const successCount = results.length;
+        const errorCount = errors.length;
+        const successList = results.map(r => `- #${r.result.id}: ${r.testPlan}`).join('\n');
+        const errorList = errors.length > 0 ? `\n\nErrors:\n${errors.map(e => `- ${e.testPlan}: ${e.error}`).join('\n')}` : '';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Batch Test Plan Creation Complete\n\nSummary:\n- Total requested: ${testPlans.length}\n- Successfully created: ${successCount}\n- Errors: ${errorCount}\n\nCreated Test Plans:\n${successList}${errorList}`,
                 },
             ],
         };
