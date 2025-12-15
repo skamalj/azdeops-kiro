@@ -69,8 +69,8 @@ export class TestPlanTreeItem extends AzureDevOpsTreeItem {
         public readonly testPlan: TestPlan,
         public readonly hasTestCases: boolean = false
     ) {
-        super(testPlan.name, hasTestCases ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None, 'testplan');
-        this.description = `#${testPlan.id} - ${testPlan.state}`;
+        super(`#${testPlan.id} ${testPlan.name}`, hasTestCases ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None, 'testplan');
+        this.description = testPlan.state;
         this.tooltip = `Test Plan #${testPlan.id}: ${testPlan.name}\nState: ${testPlan.state}\nIteration: ${testPlan.iterationPath}`;
         this.contextValue = 'testplan';
         this.iconPath = new vscode.ThemeIcon('beaker');
@@ -83,8 +83,8 @@ export class TestCaseTreeItem extends AzureDevOpsTreeItem {
         public readonly testCase: TestCase,
         public readonly parent?: TestPlanTreeItem
     ) {
-        super(testCase.title, vscode.TreeItemCollapsibleState.None, 'testcase');
-        this.description = `#${testCase.id} - ${testCase.state} (${testCase.priority})`;
+        super(`#${testCase.id} ${testCase.title}`, vscode.TreeItemCollapsibleState.None, 'testcase');
+        this.description = `${testCase.state} (${testCase.priority})`;
         this.tooltip = `Test Case #${testCase.id}: ${testCase.title}\nState: ${testCase.state}\nPriority: ${testCase.priority}\nSteps: ${testCase.steps.length}`;
         this.contextValue = 'testcase';
         this.iconPath = new vscode.ThemeIcon('test-view-icon', this.getPriorityColor(testCase.priority));
@@ -120,10 +120,10 @@ export class WorkItemTreeItem extends AzureDevOpsTreeItem {
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly parent?: WorkItemTreeItem
     ) {
-        super(workItem.title, collapsibleState, 'workitem');
+        super(`#${workItem.id} ${workItem.title}`, collapsibleState, 'workitem');
         
         this.tooltip = `${workItem.type} #${workItem.id}: ${workItem.title}`;
-        this.description = `#${workItem.id} - ${workItem.state}`;
+        this.description = workItem.state;
         
         // Set context value for menu contributions
         this.contextValue = workItem.type.toLowerCase().replace(/\s+/g, '');
@@ -193,9 +193,8 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
     readonly onDidChangeTreeData: vscode.Event<AzureDevOpsTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private workItems: WorkItem[] = [];
-    private userStories: Map<number, WorkItem> = new Map();
-    private tasks: Map<number, WorkItem[]> = new Map();
-    private independentTasks: WorkItem[] = [];
+    private userStories: Map<number, WorkItem> = new Map(); // Root-level work items (no parent)
+    private tasks: Map<number, WorkItem[]> = new Map(); // Child work items grouped by parent ID
     private projects: Project[] = [];
     private testPlans: TestPlan[] = [];
     private testCases: Map<number, TestCase[]> = new Map(); // testPlanId -> testCases
@@ -319,20 +318,17 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
 
     private async getWorkItemSectionChildren(): Promise<WorkItemTreeItem[]> {
         await this.loadWorkItems();
-        const storyLevelItems = Array.from(this.userStories.values());
+        
+        // Get all root-level items (items without parents)
         const rootItems: WorkItemTreeItem[] = [];
         
-        // Add story-level items (Epics, User Stories, Issues, etc.) with potential child tasks
-        storyLevelItems.forEach(storyItem => {
+        // Convert userStories map values to array and create tree items
+        Array.from(this.userStories.values()).forEach(rootItem => {
+            const hasChildren = this.tasks.has(rootItem.id);
             rootItems.push(new WorkItemTreeItem(
-                storyItem,
-                this.tasks.has(storyItem.id) ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None
+                rootItem,
+                hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
             ));
-        });
-        
-        // Add independent tasks (tasks without parent)
-        this.independentTasks.forEach(task => {
-            rootItems.push(new WorkItemTreeItem(task, vscode.TreeItemCollapsibleState.None));
         });
         
         if (rootItems.length === 0) {
@@ -399,39 +395,58 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
 
     private async loadWorkItems(): Promise<void> {
         try {
-            // Get all work items to support different process templates
+            // Get all work items - don't filter by type, get everything
             const allWorkItems = await this.apiClient.getWorkItems({});
             
-            // Separate story-level items from tasks
-            const storyLevelTypes = ['Epic', 'User Story', 'Issue', 'Product Backlog Item', 'Feature'];
-            const storyLevelItems = allWorkItems.filter(item => storyLevelTypes.includes(item.type));
-            const tasks = allWorkItems.filter(item => item.type === 'Task');
+            // Build parent-child hierarchy based on actual parentId relationships
+            this.workItems = allWorkItems;
+            this.userStories.clear(); // Will store root-level items (items without parents)
+            this.tasks.clear(); // Will store children grouped by parent ID
             
-            // Store story-level items (using userStories map for backward compatibility)
-            this.userStories.clear();
-            storyLevelItems.forEach(story => this.userStories.set(story.id, story));
-
-            // Group tasks by parent or mark as independent
-            this.tasks.clear();
-            this.independentTasks = [];
+            // Create maps for quick lookup
+            const workItemMap = new Map<number, WorkItem>();
+            allWorkItems.forEach(item => workItemMap.set(item.id, item));
             
-            tasks.forEach(task => {
-                if (task.parentId) {
-                    // Task has a parent - group under parent work item
-                    if (!this.tasks.has(task.parentId)) {
-                        this.tasks.set(task.parentId, []);
-                    }
-                    this.tasks.get(task.parentId)!.push(task);
+            // Separate root items (no parent) from child items (have parent)
+            const rootItems: WorkItem[] = [];
+            const childItems: WorkItem[] = [];
+            
+            allWorkItems.forEach(item => {
+                if (!item.parentId) {
+                    // Root level item - no parent
+                    rootItems.push(item);
                 } else {
-                    // Independent task - show at root level
-                    this.independentTasks.push(task);
+                    // Child item - has a parent
+                    childItems.push(item);
                 }
             });
-
-            this.workItems = [...storyLevelItems, ...tasks];
             
-            console.log(`Loaded ${storyLevelItems.length} story-level items (${storyLevelItems.map(s => s.type).join(', ')}), ${this.independentTasks.length} independent tasks, ${tasks.length - this.independentTasks.length} linked tasks`);
+            // Store root items in userStories map (for backward compatibility with existing code)
+            rootItems.forEach(item => this.userStories.set(item.id, item));
+            
+            // Group child items by their parent ID
+            childItems.forEach(child => {
+                if (child.parentId) {
+                    if (!this.tasks.has(child.parentId)) {
+                        this.tasks.set(child.parentId, []);
+                    }
+                    this.tasks.get(child.parentId)!.push(child);
+                }
+            });
+            
+            // Log the hierarchy for debugging
+            const rootItemTypes = rootItems.map(item => item.type);
+            const childItemTypes = childItems.map(item => item.type);
+            const uniqueRootTypes = [...new Set(rootItemTypes)];
+            const uniqueChildTypes = [...new Set(childItemTypes)];
+            
+            console.log(`Loaded work item hierarchy:`);
+            console.log(`  Root items: ${rootItems.length} (types: ${uniqueRootTypes.join(', ')})`);
+            console.log(`  Child items: ${childItems.length} (types: ${uniqueChildTypes.join(', ')})`);
+            console.log(`  Parent-child relationships: ${this.tasks.size}`);
+            
         } catch (error) {
+            console.error('Failed to load work items:', error);
             vscode.window.showErrorMessage(`Failed to load work items: ${error}`);
         }
     }
@@ -472,16 +487,15 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
     }
 
     /**
-     * Get all story-level work items for parent selection (Epics, User Stories, Issues, etc.)
+     * Get all root-level work items for parent selection (items without parents)
      */
     async getUserStories(): Promise<WorkItem[]> {
         try {
-            // Get all work items and filter to story-level types
+            // Get all work items and filter to root-level items (no parent)
             const allWorkItems = await this.apiClient.getWorkItems({});
-            const storyLevelTypes = ['Epic', 'User Story', 'Issue', 'Product Backlog Item', 'Feature'];
-            return allWorkItems.filter(item => storyLevelTypes.includes(item.type));
+            return allWorkItems.filter(item => !item.parentId);
         } catch (error) {
-            console.error('Failed to load story-level work items:', error);
+            console.error('Failed to load root-level work items:', error);
             return [];
         }
     }

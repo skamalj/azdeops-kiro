@@ -78,11 +78,9 @@ const ExecuteTestCaseSchema = zod_1.z.object({
     executedBy: zod_1.z.string(),
 });
 class AzureDevOpsApiClient {
-    constructor() {
-        this.organizationUrl = '';
-        this.projectName = '';
-        this.pat = '';
-    }
+    organizationUrl = '';
+    projectName = '';
+    pat = '';
     initialize(organizationUrl, projectName, pat) {
         this.organizationUrl = organizationUrl;
         this.projectName = projectName;
@@ -446,6 +444,8 @@ class AzureDevOpsApiClient {
     }
 }
 class AzureDevOpsCoreServer {
+    server;
+    apiClient;
     constructor() {
         this.server = new index_js_1.Server({
             name: 'azure-devops-core',

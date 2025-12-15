@@ -66,4 +66,92 @@ export interface MCPError {
     message: string;
     data?: any;
 }
-//# sourceMappingURL=index.d.ts.map
+export interface Project {
+    id: string;
+    name: string;
+    description: string;
+    url: string;
+    state: 'wellFormed' | 'createPending' | 'deleting' | 'new';
+    visibility: 'private' | 'public';
+}
+export interface ProjectContext {
+    project: Project;
+    workItemTypes: WorkItemTypeDefinition[];
+    permissions: ProjectPermissions;
+}
+export interface ProjectPermissions {
+    canCreateWorkItems: boolean;
+    canEditWorkItems: boolean;
+    canDeleteWorkItems: boolean;
+    canManageTestPlans: boolean;
+    canExecuteTests: boolean;
+    canViewReports: boolean;
+}
+export interface WorkItemTypeDefinition {
+    name: string;
+    referenceName: string;
+    description: string;
+    color: string;
+    icon: string;
+    states: string[];
+    fields: FieldDefinition[];
+}
+export interface FieldDefinition {
+    referenceName: string;
+    name: string;
+    type: 'String' | 'Integer' | 'Double' | 'DateTime' | 'Boolean' | 'Identity' | 'PicklistString';
+    required: boolean;
+    readOnly: boolean;
+    defaultValue?: any;
+}
+export interface TestCase extends WorkItem {
+    steps: TestStep[];
+    expectedResult: string;
+    priority: 'Critical' | 'High' | 'Medium' | 'Low';
+    testPlanId?: number;
+    testSuiteId?: number;
+    automationStatus: 'Automated' | 'Not Automated' | 'Planned';
+}
+export interface TestStep {
+    stepNumber: number;
+    action: string;
+    expectedResult: string;
+}
+export interface TestResult {
+    outcome: 'Passed' | 'Failed' | 'Blocked' | 'Not Applicable';
+    comment?: string;
+    executedBy: string;
+    executedDate: Date;
+}
+export interface TestPlan {
+    id: number;
+    name: string;
+    description: string;
+    projectId: string;
+    iterationPath: string;
+    areaPath: string;
+    state: 'Inactive' | 'Active' | 'Completed';
+    testSuites: TestSuite[];
+    createdDate: Date;
+    changedDate: Date;
+}
+export interface TestSuite {
+    id: number;
+    name: string;
+    testPlanId: number;
+    parentSuiteId?: number;
+    testCases: TestCase[];
+    childSuites: TestSuite[];
+}
+export interface TestCaseFields extends WorkItemFields {
+    steps: TestStep[];
+    expectedResult: string;
+    priority: 'Critical' | 'High' | 'Medium' | 'Low';
+    automationStatus: 'Automated' | 'Not Automated' | 'Planned';
+}
+export interface TestPlanFields {
+    name: string;
+    description: string;
+    iterationPath: string;
+    areaPath: string;
+}

@@ -126,7 +126,6 @@ export interface FieldDefinition {
 
 // Test case related interfaces
 export interface TestCase extends WorkItem {
-  type: 'Test Case';
   steps: TestStep[];
   expectedResult: string;
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
