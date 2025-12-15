@@ -163,28 +163,35 @@ export class WorkItemTreeItem extends AzureDevOpsTreeItem {
     }
 
     private getStateColor(state: string): vscode.ThemeColor | undefined {
-        switch (state.toLowerCase()) {
-            case 'new':
-            case 'to do':
-                return new vscode.ThemeColor('charts.blue');
-            case 'active':
-            case 'in progress':
-            case 'doing':
-                return new vscode.ThemeColor('charts.green');
-            case 'resolved':
-            case 'done':
-            case 'completed':
-                return new vscode.ThemeColor('charts.gray');
-            case 'closed':
-            case 'removed':
-                return new vscode.ThemeColor('charts.purple');
-            case 'blocked':
-                return new vscode.ThemeColor('charts.red');
-            case 'committed':
-                return new vscode.ThemeColor('charts.orange');
-            default:
-                return new vscode.ThemeColor('foreground');
+        const normalizedState = state.toLowerCase().trim();
+        
+        // New/Initial states (Blue)
+        if (['new', 'to do', 'proposed', 'approved', 'open'].includes(normalizedState)) {
+            return new vscode.ThemeColor('charts.blue');
         }
+        
+        // Active/In Progress states (Green)
+        if (['active', 'in progress', 'doing', 'committed', 'in development', 'in review'].includes(normalizedState)) {
+            return new vscode.ThemeColor('charts.green');
+        }
+        
+        // Completed/Done states (Gray) - This should handle all completion states consistently
+        if (['resolved', 'done', 'completed', 'closed', 'finished', 'ready for deployment', 'deployed'].includes(normalizedState)) {
+            return new vscode.ThemeColor('charts.gray');
+        }
+        
+        // Removed/Cancelled states (Purple)
+        if (['removed', 'cancelled', 'cut', 'inactive'].includes(normalizedState)) {
+            return new vscode.ThemeColor('charts.purple');
+        }
+        
+        // Blocked/Problem states (Red)
+        if (['blocked', 'failed', 'rejected', 'on hold'].includes(normalizedState)) {
+            return new vscode.ThemeColor('charts.red');
+        }
+        
+        // Default fallback
+        return new vscode.ThemeColor('foreground');
     }
 }
 
