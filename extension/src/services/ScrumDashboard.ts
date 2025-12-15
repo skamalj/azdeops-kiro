@@ -40,7 +40,9 @@ export class ScrumDashboard {
 
     try {
       const metrics = await this.getScrumMetrics();
-      const html = this.generateDashboardHtml(metrics);
+      const allWorkItems = await this.getAllWorkItems();
+      const workItemMatrix = this.generateWorkItemMatrix(allWorkItems);
+      const html = this.generateDashboardHtml(metrics, workItemMatrix);
       this.webviewPanel.webview.html = html;
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to update dashboard: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -72,6 +74,169 @@ export class ScrumDashboard {
       console.error('Failed to get scrum metrics:', error);
       throw error;
     }
+  }
+
+  async getAllWorkItems(): Promise<WorkItem[]> {
+    try {
+      // Get current project context
+      const currentProject = this.projectManager?.getCurrentProject();
+      if (!currentProject) {
+        throw new Error('No project selected. Please select a project first.');
+      }
+
+      // Query for ALL work items in the project (not just sprint items)
+      const wiql = `
+        SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], 
+               [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], 
+               [Microsoft.VSTS.Scheduling.RemainingWork]
+        FROM WorkItems 
+        WHERE [System.TeamProject] = '${currentProject.name}'
+        ORDER BY [System.WorkItemType], [System.State], [System.Id]
+      `;
+
+      const queryResponse = await fetch(
+        `${this.apiClient.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': this.authService.getAuthHeader() || '',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: wiql })
+        }
+      );
+
+      if (!queryResponse.ok) {
+        throw new Error(`Failed to query work items: ${queryResponse.status} ${queryResponse.statusText}`);
+      }
+
+      const queryData = await queryResponse.json();
+      const workItemIds = queryData.workItems?.map((wi: any) => wi.id) || [];
+
+      if (workItemIds.length === 0) {
+        return [];
+      }
+
+      // Get detailed work item information in batches (Azure DevOps has limits)
+      const batchSize = 200;
+      const allWorkItems: WorkItem[] = [];
+
+      for (let i = 0; i < workItemIds.length; i += batchSize) {
+        const batchIds = workItemIds.slice(i, i + batchSize);
+        const idsParam = batchIds.join(',');
+        
+        const detailsResponse = await fetch(
+          `${this.apiClient.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&api-version=7.0`,
+          {
+            headers: {
+              'Authorization': this.authService.getAuthHeader() || '',
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        if (!detailsResponse.ok) {
+          throw new Error(`Failed to get work item details: ${detailsResponse.status} ${detailsResponse.statusText}`);
+        }
+
+        const detailsData = await detailsResponse.json();
+        const batchWorkItems = detailsData.value.map((item: any) => this.mapAzureWorkItemToWorkItem(item));
+        allWorkItems.push(...batchWorkItems);
+      }
+
+      return allWorkItems;
+    } catch (error) {
+      console.error('Failed to get all work items:', error);
+      return [];
+    }
+  }
+
+  generateWorkItemMatrix(workItems: WorkItem[]): { [type: string]: { [state: string]: number } } {
+    const matrix: { [type: string]: { [state: string]: number } } = {};
+
+    workItems.forEach(workItem => {
+      const type = workItem.type;
+      const state = workItem.state;
+
+      // Initialize type if not exists
+      if (!matrix[type]) {
+        matrix[type] = {};
+      }
+
+      // Initialize state count if not exists
+      if (!matrix[type][state]) {
+        matrix[type][state] = 0;
+      }
+
+      // Increment count
+      matrix[type][state]++;
+    });
+
+    return matrix;
+  }
+
+  private generateMatrixHtml(matrix: { [type: string]: { [state: string]: number } }): string {
+    if (!matrix || Object.keys(matrix).length === 0) {
+      return '';
+    }
+
+    // Get all unique states across all work item types
+    const allStates = new Set<string>();
+    Object.values(matrix).forEach(typeStates => {
+      Object.keys(typeStates).forEach(state => allStates.add(state));
+    });
+    const sortedStates = Array.from(allStates).sort();
+
+    // Get all work item types
+    const workItemTypes = Object.keys(matrix).sort();
+
+    // Calculate totals
+    const stateTotals: { [state: string]: number } = {};
+    const typeTotals: { [type: string]: number } = {};
+    let grandTotal = 0;
+
+    workItemTypes.forEach(type => {
+      typeTotals[type] = 0;
+      sortedStates.forEach(state => {
+        const count = matrix[type][state] || 0;
+        typeTotals[type] += count;
+        stateTotals[state] = (stateTotals[state] || 0) + count;
+        grandTotal += count;
+      });
+    });
+
+    return `
+        <!-- Work Item Matrix -->
+        <div class="metric-card matrix-card">
+            <div class="metric-title">Work Items Matrix (Type vs State)</div>
+            <table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Work Item Type</th>
+                        ${sortedStates.map(state => `<th>${state}</th>`).join('')}
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${workItemTypes.map(type => `
+                        <tr>
+                            <td class="type-header">${type}</td>
+                            ${sortedStates.map(state => {
+                                const count = matrix[type][state] || 0;
+                                return `<td><span class="matrix-count ${count === 0 ? 'zero' : ''}">${count}</span></td>`;
+                            }).join('')}
+                            <td><span class="matrix-count">${typeTotals[type]}</span></td>
+                        </tr>
+                    `).join('')}
+                    <tr style="border-top: 2px solid var(--vscode-widget-border);">
+                        <td class="type-header"><strong>Total</strong></td>
+                        ${sortedStates.map(state => `<td><span class="matrix-count">${stateTotals[state] || 0}</span></td>`).join('')}
+                        <td><span class="matrix-count"><strong>${grandTotal}</strong></span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    `;
   }
 
   private async getCurrentSprintWorkItems(): Promise<WorkItem[]> {
@@ -421,7 +586,7 @@ export class ScrumDashboard {
     };
   }
 
-  private generateDashboardHtml(metrics: ScrumMetrics): string {
+  private generateDashboardHtml(metrics: ScrumMetrics, workItemMatrix?: { [type: string]: { [state: string]: number } }): string {
     return `
 <!DOCTYPE html>
 <html lang="en">
@@ -538,6 +703,43 @@ export class ScrumDashboard {
             background-color: #d13438;
             color: white;
         }
+        
+        /* Work Item Matrix Styles */
+        .matrix-card {
+            grid-column: 1 / -1; /* Span full width */
+        }
+        .matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        .matrix-table th,
+        .matrix-table td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid var(--vscode-widget-border);
+        }
+        .matrix-table th {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            font-weight: 600;
+        }
+        .matrix-table td {
+            background-color: var(--vscode-editor-widget-background);
+        }
+        .matrix-table .type-header {
+            text-align: left;
+            font-weight: 600;
+            background-color: var(--vscode-editor-widget-background);
+        }
+        .matrix-count {
+            font-weight: 600;
+            color: var(--vscode-foreground);
+        }
+        .matrix-count.zero {
+            color: var(--vscode-descriptionForeground);
+            font-weight: normal;
+        }
     </style>
 </head>
 <body>
@@ -616,6 +818,8 @@ export class ScrumDashboard {
                 </div>
             `).join('')}
         </div>
+
+        ${workItemMatrix ? this.generateMatrixHtml(workItemMatrix) : ''}
     </div>
 
     <script>

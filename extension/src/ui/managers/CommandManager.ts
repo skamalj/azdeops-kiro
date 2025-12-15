@@ -412,9 +412,25 @@ export class CommandManager {
     async viewTask(item: WorkItemTreeItem): Promise<void> {
         // Open task details in a webview or show information
         const task = item.workItem;
-        const message = `Task #${task.id}: ${task.title}\n\nType: ${task.type}\nState: ${task.state}\nAssigned To: ${task.assignedTo || 'Unassigned'}\n\nDescription:\n${task.description}`;
         
-        vscode.window.showInformationMessage(message, 'Edit Task', 'View in Browser')
+        // Format the work item details nicely
+        const details = [
+            `📋 ${task.type} #${task.id}`,
+            ``,
+            `📝 Title: ${task.title}`,
+            `🔄 State: ${task.state}`,
+            `👤 Assigned: ${task.assignedTo || 'Unassigned'}`,
+            task.storyPoints ? `⭐ Story Points: ${task.storyPoints}` : null,
+            task.remainingWork ? `⏱️ Remaining Work: ${task.remainingWork} hours` : null,
+            task.tags && task.tags.length > 0 ? `🏷️ Tags: ${task.tags.join(', ')}` : null,
+            `📅 Created: ${task.createdDate.toLocaleDateString()}`,
+            `📅 Modified: ${task.changedDate.toLocaleDateString()}`,
+            ``,
+            `📄 Description:`,
+            task.description || 'No description provided'
+        ].filter(line => line !== null).join('\n');
+        
+        vscode.window.showInformationMessage(details, 'Edit Task', 'View in Browser')
             .then(selection => {
                 if (selection === 'Edit Task') {
                     this.editTask(item);
