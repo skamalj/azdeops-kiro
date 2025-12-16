@@ -2,7 +2,10 @@
   "mcpServers": {
     "azure-devops-core": {
       "command": "node",
-      "args": ["extension/mcp-server/index.js", "--stdio"],
+      "args": [
+        "extension/mcp-server/index.js",
+        "--stdio"
+      ],
       "env": {
         "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",
         "AZURE_DEVOPS_PROJECT": "${AZURE_DEVOPS_PROJECT}",
@@ -19,7 +22,11 @@
         "create_test_plan",
         "get_projects",
         "switch_project",
-        "get_scrum_metrics"
+        "get_scrum_metrics",
+        "delete_sprint",
+        "get_sprints",
+        "assign_work_items_to_sprint",
+        "get_sprint_work_items"
       ]
     }
   }

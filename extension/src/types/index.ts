@@ -2,7 +2,7 @@
 
 export interface WorkItem {
   id: number;
-  type: 'User Story' | 'Task' | 'Bug' | 'Feature' | 'Test Case' | 'Info';
+  type: string; // Changed to string to support any work item type (Epic, Issue, User Story, Task, Bug, etc.)
   title: string;
   description: string;
   state: string;
@@ -275,6 +275,10 @@ export interface SprintProgress {
   remainingTasks: number;
   daysRemaining: number;
   completionPercentage: number;
+  measurementType?: string;
+  measurementUnit?: string;
+  totalEffort?: number;
+  completedEffort?: number;
 }
 
 export interface TeamVelocity {

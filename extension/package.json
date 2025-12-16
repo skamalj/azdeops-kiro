@@ -241,6 +241,19 @@
           "description": "Sync interval in seconds",
           "minimum": 60,
           "maximum": 3600
+        },
+        "azureDevOps.effortConversion.storyPointsToHours": {
+          "type": "number",
+          "default": 8,
+          "description": "Conversion ratio: How many hours equals 1 story point (default: 8 hours = 1 story point)",
+          "minimum": 0.1,
+          "maximum": 100
+        },
+        "azureDevOps.effortConversion.preferredUnit": {
+          "type": "string",
+          "enum": ["storyPoints", "hours", "auto"],
+          "default": "auto",
+          "description": "Preferred unit for mixed effort calculations (auto = use most common unit in sprint)"
         }
       }
     }

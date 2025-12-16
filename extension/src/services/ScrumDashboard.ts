@@ -3,6 +3,46 @@ import { ScrumMetrics, SprintProgress, TeamVelocity, BurndownData, WorkItemDistr
 import { AzureDevOpsApiClient } from './AzureDevOpsApiClient';
 import { AuthenticationService } from './AuthenticationService';
 
+// Enhanced interfaces for real data foundation
+interface WorkItemEffort {
+  id: number;
+  title: string;
+  type: string;
+  state: string;
+  effort: number;
+  assignedTo?: string;
+}
+
+interface SprintDataFoundation {
+  sprintId: string;
+  sprintName: string;
+  startDate?: Date;
+  endDate?: Date;
+  totalEffort: number;
+  completedEffort: number;
+  remainingEffort: number;
+  workItemsByState: {
+    planned: WorkItemEffort[];
+    inProgress: WorkItemEffort[];
+    completed: WorkItemEffort[];
+  };
+  measurementType: 'storyPoints' | 'hours' | 'count';
+}
+
+interface VelocityData {
+  sprintName: string;
+  plannedEffort: number;
+  completedEffort: number;
+  velocityPercentage: number;
+  measurementUnit: string;
+}
+
+interface EnhancedBurndownData extends BurndownData {
+  measurementUnit: string;
+  totalEffort: number;
+  sprintDuration: number;
+}
+
 export class ScrumDashboard {
   private webviewPanel: vscode.WebviewPanel | undefined;
 
@@ -32,43 +72,64 @@ export class ScrumDashboard {
       this.webviewPanel = undefined;
     });
 
+    // Handle messages from the webview
+    this.webviewPanel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.command) {
+          case 'refreshSprint':
+            console.log('[Dashboard] Refreshing dashboard for sprint:', message.sprintPath);
+            await this.updateDashboard(message.sprintPath);
+            break;
+        }
+      }
+    );
+
     await this.updateDashboard();
   }
 
-  async updateDashboard(): Promise<void> {
+  async updateDashboard(selectedSprintPath?: string): Promise<void> {
     if (!this.webviewPanel) return;
 
     try {
-      const metrics = await this.getScrumMetrics();
+      console.log('[Dashboard] Updating dashboard with sprint:', selectedSprintPath || 'default');
+      const metricsWithSprint = await this.getScrumMetrics(selectedSprintPath);
       const allWorkItems = await this.getAllWorkItems();
       const workItemMatrix = this.generateWorkItemMatrix(allWorkItems);
-      const html = this.generateDashboardHtml(metrics, workItemMatrix);
+      const sprintMetricsMatrix = await this.generateSprintMetricsMatrix();
+      const html = this.generateDashboardHtml(metricsWithSprint, workItemMatrix, sprintMetricsMatrix);
       this.webviewPanel.webview.html = html;
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to update dashboard: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  async getScrumMetrics(): Promise<ScrumMetrics> {
+  async getScrumMetrics(selectedSprintPath?: string): Promise<ScrumMetrics & { sprintName: string, availableSprints: { id: string, name: string, path: string }[] }> {
     if (!this.authService.isAuthenticated()) {
       throw new Error('Not authenticated with Azure DevOps');
     }
 
     try {
+      // Get available sprints
+      const availableSprints = await this.getAvailableSprints();
+      
       // Get current sprint work items
-      const workItems = await this.getCurrentSprintWorkItems();
+      const { workItems, sprintName } = await this.getCurrentSprintWorkItems(selectedSprintPath);
+      
+      console.log(`[Dashboard] Calculating metrics for ${workItems.length} items in ${sprintName}`);
       
       // Calculate metrics
       const sprintProgress = this.calculateSprintProgress(workItems);
       const teamVelocity = await this.calculateTeamVelocity();
-      const burndownData = await this.calculateBurndownData(workItems);
+      const burndownData = await this.calculateBurndownData(workItems, selectedSprintPath);
       const workItemDistribution = this.calculateWorkItemDistribution(workItems);
 
       return {
         sprintProgress,
         teamVelocity,
         burndownData,
-        workItemDistribution
+        workItemDistribution,
+        sprintName,
+        availableSprints
       };
     } catch (error) {
       console.error('Failed to get scrum metrics:', error);
@@ -239,7 +300,55 @@ export class ScrumDashboard {
     `;
   }
 
-  private async getCurrentSprintWorkItems(): Promise<WorkItem[]> {
+  /**
+   * Get all available sprints for the current project
+   */
+  private async getAvailableSprints(): Promise<{ id: string, name: string, path: string }[]> {
+    try {
+      const currentProject = this.projectManager?.getCurrentProject();
+      if (!currentProject) {
+        return [];
+      }
+
+      // Get sprints using classification nodes API
+      const response = await fetch(
+        `${this.apiClient.getBaseUrl()}/_apis/wit/classificationnodes/iterations?api-version=7.0&$depth=2`,
+        {
+          headers: {
+            'Authorization': this.authService.getAuthHeader() || '',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Failed to get sprints:', response.status, response.statusText);
+        return [];
+      }
+
+      const data = await response.json();
+      const sprints: { id: string, name: string, path: string }[] = [];
+
+      // Parse the classification nodes to extract sprints
+      if (data.children) {
+        data.children.forEach((child: any) => {
+          sprints.push({
+            id: child.id.toString(),
+            name: child.name,
+            path: child.path
+          });
+        });
+      }
+
+      console.log(`[Dashboard] Found ${sprints.length} available sprints:`, sprints);
+      return sprints;
+    } catch (error) {
+      console.error('Error getting available sprints:', error);
+      return [];
+    }
+  }
+
+  private async getCurrentSprintWorkItems(selectedSprintPath?: string): Promise<{ workItems: WorkItem[], sprintName: string }> {
     try {
       // Get current project context
       const currentProject = this.projectManager?.getCurrentProject();
@@ -247,19 +356,35 @@ export class ScrumDashboard {
         throw new Error('No project selected. Please select a project first.');
       }
 
-      const projectContext = this.projectManager?.getCurrentProjectContext();
-      const workItemTypes = this.getRelevantWorkItemTypes(projectContext);
+      let sprintName: string;
+      let iterationPath: string;
 
-      // Query for current sprint work items using the actual project name
+      if (selectedSprintPath) {
+        // Extract sprint name from path (e.g., "\azdevops-kiro\Iteration\Sprint 1" -> "Sprint 1")
+        const pathParts = selectedSprintPath.split('\\');
+        sprintName = pathParts[pathParts.length - 1] || 'Unknown Sprint';
+        // Convert to assignment path format: "azdevops-kiro\Sprint 1"
+        iterationPath = `${currentProject.name}\\${sprintName}`;
+      } else {
+        // Default to Sprint 1
+        sprintName = 'Sprint 1';
+        iterationPath = `${currentProject.name}\\Sprint 1`;
+      }
+
+      console.log(`[Dashboard] Getting work items for sprint: ${sprintName} using path: ${iterationPath}`);
+
+      // Use the same approach as our working MCP tools
+      // Get all work items and filter by iteration path
       const wiql = `
         SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], 
                [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], 
-               [Microsoft.VSTS.Scheduling.RemainingWork]
+               [Microsoft.VSTS.Scheduling.RemainingWork], [System.IterationPath]
         FROM WorkItems 
         WHERE [System.TeamProject] = '${currentProject.name}'
-        AND [System.WorkItemType] IN (${workItemTypes.map(type => `'${type}'`).join(', ')})
-        ORDER BY [System.Id]
+        ORDER BY [System.WorkItemType], [System.Id]
       `;
+
+      console.log(`[Dashboard] WIQL Query: ${wiql}`);
 
       const queryResponse = await fetch(
         `${this.apiClient.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`,
@@ -280,8 +405,10 @@ export class ScrumDashboard {
       const queryData = await queryResponse.json();
       const workItemIds = queryData.workItems?.map((wi: any) => wi.id) || [];
 
+      console.log(`[Dashboard] Found ${workItemIds.length} total work items in project`);
+
       if (workItemIds.length === 0) {
-        return [];
+        return { workItems: [], sprintName };
       }
 
       // Get detailed work item information
@@ -301,41 +428,41 @@ export class ScrumDashboard {
       }
 
       const detailsData = await detailsResponse.json();
-      return detailsData.value.map((item: any) => this.mapAzureWorkItemToWorkItem(item));
+      const allWorkItems = detailsData.value.map((item: any) => this.mapAzureWorkItemToWorkItem(item));
+      
+      // Filter work items by iteration path
+      const sprintWorkItems = allWorkItems.filter((wi: WorkItem) => {
+        const wiIterationPath = wi.fields?.['System.IterationPath'] || '';
+        console.log(`[Dashboard] Work item #${wi.id}: "${wi.title}" -> iteration path: "${wiIterationPath}"`);
+        
+        // Check if the work item's iteration path matches our target sprint
+        // Try multiple path formats to be flexible
+        const pathsToCheck = [
+          iterationPath, // "azdevops-kiro\Sprint 1"
+          `\\${iterationPath}`, // "\azdevops-kiro\Sprint 1"
+          `\\${currentProject.name}\\Iteration\\${sprintName}`, // "\azdevops-kiro\Iteration\Sprint 1"
+          `${currentProject.name}\\Iteration\\${sprintName}` // "azdevops-kiro\Iteration\Sprint 1"
+        ];
+        
+        return pathsToCheck.some(path => wiIterationPath === path);
+      });
+      
+      console.log(`[Dashboard] Filtered to ${sprintWorkItems.length} work items for ${sprintName}`);
+      
+      if (sprintWorkItems.length > 0) {
+        console.log(`[Dashboard] Sprint work items:`, sprintWorkItems.map((wi: WorkItem) => `#${wi.id}: ${wi.title} (${wi.state})`));
+      }
+      
+      return { workItems: sprintWorkItems, sprintName };
     } catch (error) {
       console.error('Failed to get current sprint work items:', error);
-      return [];
+      return { workItems: [], sprintName: 'Unknown Sprint' };
     }
   }
 
   private calculateSprintProgress(workItems: WorkItem[]): SprintProgress {
-    // Get story-level work items (User Story, Epic, Issue, or Product Backlog Item)
-    const storyLevelItems = workItems.filter(wi => 
-      ['User Story', 'Epic', 'Issue', 'Product Backlog Item'].includes(wi.type)
-    );
-    const tasks = workItems.filter(wi => wi.type === 'Task');
-
-    const totalStoryPoints = storyLevelItems.reduce((sum, story) => sum + (story.storyPoints || 0), 0);
-    const completedStoryPoints = storyLevelItems
-      .filter(story => this.isWorkItemCompleted(story))
-      .reduce((sum, story) => sum + (story.storyPoints || 0), 0);
-
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => this.isWorkItemCompleted(task)).length;
-
-    const completionPercentage = totalStoryPoints > 0 ? (completedStoryPoints / totalStoryPoints) * 100 : 
-                                totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-
-    return {
-      totalStoryPoints,
-      completedStoryPoints,
-      remainingStoryPoints: totalStoryPoints - completedStoryPoints,
-      totalTasks,
-      completedTasks,
-      remainingTasks: totalTasks - completedTasks,
-      daysRemaining: this.calculateDaysRemaining(),
-      completionPercentage
-    };
+    // Use enhanced calculation with real data foundation
+    return this.calculateEnhancedSprintProgress(workItems);
   }
 
   private isWorkItemCompleted(workItem: WorkItem): boolean {
@@ -345,75 +472,157 @@ export class ScrumDashboard {
   }
 
   private async calculateTeamVelocity(): Promise<TeamVelocity> {
-    // Simplified velocity calculation
-    // In a full implementation, this would query historical sprint data
-    return {
-      currentSprint: 25,
-      lastThreeSprints: [23, 27, 25],
-      averageVelocity: 25,
-      trend: 'stable'
-    };
-  }
-
-  private async calculateBurndownData(workItems: WorkItem[]): Promise<BurndownData> {
     try {
-      // Calculate total work based on story points and remaining work
-      const totalStoryPoints = workItems
-        .filter(wi => ['Epic', 'User Story', 'Issue', 'Product Backlog Item'].includes(wi.type))
-        .reduce((sum, wi) => sum + (wi.storyPoints || 0), 0);
+      const allWorkItems = await this.getAllWorkItems();
+      const measurementType = this.detectMeasurementType(allWorkItems);
+      const effortItems = this.filterWorkItemsWithEffort(allWorkItems, measurementType);
       
-      const totalRemainingWork = workItems
-        .filter(wi => wi.type === 'Task')
-        .reduce((sum, wi) => sum + (wi.remainingWork || 0), 0);
+      // Group work items by sprint
+      const sprintData: { [sprint: string]: { total: number; completed: number } } = {};
       
-      // Use story points if available, otherwise use remaining work, fallback to work item count
-      const totalWork = totalStoryPoints > 0 ? totalStoryPoints : 
-                       totalRemainingWork > 0 ? totalRemainingWork : 
-                       workItems.length;
-
-      // Get sprint duration (default to 2 weeks = 10 working days)
-      const sprintDays = 10;
-      const sprintStartDate = new Date();
-      sprintStartDate.setDate(sprintStartDate.getDate() - sprintDays);
-      
-      // Generate dates for the sprint
-      const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
-        const date = new Date(sprintStartDate);
-        date.setDate(date.getDate() + i);
-        return date.toISOString().split('T')[0];
-      });
-
-      // Calculate ideal burndown (linear)
-      const idealBurndown = dates.map((_, i) => Math.max(0, totalWork - (totalWork / sprintDays) * i));
-      
-      // Calculate actual burndown based on completed work
-      const completedWork = await this.calculateCompletedWork(workItems);
-      const actualBurndown = await this.calculateActualBurndownFromHistory(workItems, dates, totalWork);
-      
-      // Calculate remaining work based on current state
-      const currentRemainingWork = totalWork - completedWork;
-      const remainingWork = dates.map((_, i) => {
-        if (i === dates.length - 1) {
-          // Last day - use actual remaining work
-          return Math.max(0, currentRemainingWork);
-        } else {
-          // Historical data - estimate based on completion rate
-          const dayProgress = i / (dates.length - 1);
-          const estimatedCompleted = completedWork * dayProgress;
-          return Math.max(0, totalWork - estimatedCompleted);
+      effortItems.forEach(wi => {
+        const iterationPath = wi.fields?.['System.IterationPath'] || '';
+        const sprintName = this.extractSprintNameFromPath(iterationPath);
+        
+        if (sprintName === 'No Sprint') return; // Skip unassigned items
+        
+        if (!sprintData[sprintName]) {
+          sprintData[sprintName] = { total: 0, completed: 0 };
+        }
+        
+        const effort = this.getWorkItemEffort(wi, measurementType);
+        sprintData[sprintName].total += effort;
+        
+        if (this.isWorkItemCompleted(wi)) {
+          sprintData[sprintName].completed += effort;
         }
       });
+      
+      // Calculate velocity for each sprint
+      const sprintVelocities = Object.entries(sprintData)
+        .map(([sprint, data]) => ({
+          sprint,
+          velocity: data.completed,
+          total: data.total
+        }))
+        .sort((a, b) => a.sprint.localeCompare(b.sprint)); // Sort by sprint name
+      
+      console.log(`[Dashboard] Calculated velocity for ${sprintVelocities.length} sprints:`, sprintVelocities);
+      
+      if (sprintVelocities.length === 0) {
+        return {
+          currentSprint: 0,
+          lastThreeSprints: [0, 0, 0],
+          averageVelocity: 0,
+          trend: 'stable'
+        };
+      }
+      
+      // Get current sprint (last in sorted order)
+      const currentSprint = sprintVelocities[sprintVelocities.length - 1]?.velocity || 0;
+      
+      // Get last 3 sprints
+      const lastThreeSprints = sprintVelocities
+        .slice(-3)
+        .map(s => s.velocity);
+      
+      // Pad with zeros if less than 3 sprints
+      while (lastThreeSprints.length < 3) {
+        lastThreeSprints.unshift(0);
+      }
+      
+      // Calculate average
+      const averageVelocity = lastThreeSprints.reduce((sum, v) => sum + v, 0) / lastThreeSprints.length;
+      
+      // Determine trend
+      let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
+      if (lastThreeSprints.length >= 2) {
+        const recent = lastThreeSprints[lastThreeSprints.length - 1];
+        const previous = lastThreeSprints[lastThreeSprints.length - 2];
+        const change = ((recent - previous) / previous) * 100;
+        
+        if (change > 10) {
+          trend = 'increasing';
+        } else if (change < -10) {
+          trend = 'decreasing';
+        }
+      }
+      
+      return {
+        currentSprint,
+        lastThreeSprints,
+        averageVelocity: Math.round(averageVelocity),
+        trend
+      };
+    } catch (error) {
+      console.error('Failed to calculate team velocity:', error);
+      return {
+        currentSprint: 0,
+        lastThreeSprints: [0, 0, 0],
+        averageVelocity: 0,
+        trend: 'stable'
+      };
+    }
+  }
+
+  private async calculateBurndownData(workItems: WorkItem[], selectedSprintPath?: string): Promise<EnhancedBurndownData> {
+    try {
+      const measurementType = this.detectMeasurementType(workItems);
+      const effortItems = this.filterWorkItemsWithEffort(workItems, measurementType);
+      const measurementUnit = this.getMeasurementUnitName(measurementType, workItems);
+      
+      // Calculate total effort using detected measurement type
+      const totalEffort = effortItems.reduce((sum, wi) => sum + this.getWorkItemEffort(wi, measurementType), 0);
+      const completedEffort = effortItems
+        .filter(wi => this.isWorkItemCompleted(wi))
+        .reduce((sum, wi) => sum + this.getWorkItemEffort(wi, measurementType), 0);
+      
+      console.log(`[Dashboard] Burndown: ${completedEffort}/${totalEffort} ${measurementUnit} completed`);
+
+      // Get actual sprint dates if available
+      const sprintInfo = await this.getSprintDateInfo(selectedSprintPath);
+      const sprintDays = sprintInfo.workingDays;
+      const dates = sprintInfo.dates;
+      
+      console.log(`[Dashboard] Using ${sprintDays} working days for sprint burndown`);
+
+      // Calculate ideal burndown (linear)
+      const idealBurndown = dates.map((_, i) => Math.max(0, totalEffort - (totalEffort / sprintDays) * i));
+      
+      // Calculate actual burndown based on current completion
+      // Since we don't have historical data, show current state across all days
+      const actualBurndown = dates.map((_, i) => {
+        if (i === dates.length - 1) {
+          // Last day shows current remaining work
+          return totalEffort - completedEffort;
+        } else {
+          // Earlier days show total effort (no progress yet)
+          return totalEffort;
+        }
+      });
+      
+      // Remaining work line shows current state
+      const remainingWork = dates.map(() => totalEffort - completedEffort);
 
       return {
         dates,
         idealBurndown,
         actualBurndown,
-        remainingWork
+        remainingWork,
+        measurementUnit,
+        totalEffort,
+        sprintDuration: sprintDays
       };
     } catch (error) {
-      console.error('Error calculating burndown data:', error);
-      // Fallback to simple calculation if detailed tracking fails
-      return this.calculateSimpleBurndown(workItems);
+      console.error('Error calculating enhanced burndown data:', error);
+      // Fallback to simple calculation
+      const fallback = this.calculateSimpleBurndown(workItems);
+      return {
+        ...fallback,
+        measurementUnit: 'Items',
+        totalEffort: workItems.length,
+        sprintDuration: 10
+      };
     }
   }
 
@@ -451,27 +660,72 @@ export class ScrumDashboard {
       } else if (dayProgress === 1) {
         actualProgress = completedWork; // Current state
       } else {
-        // Estimate progress with typical sprint curve (slow start, faster middle, slower end)
-        const sprintCurve = this.getSprintProgressCurve(dayProgress);
-        actualProgress = completedWork * sprintCurve;
+        // Simple linear estimation for intermediate days
+        actualProgress = completedWork * dayProgress;
       }
       
       return Math.max(0, totalWork - actualProgress);
     });
   }
 
-  private getSprintProgressCurve(progress: number): number {
-    // Typical sprint progress follows an S-curve
-    // Slow start (planning, setup), faster middle (development), slower end (testing, polish)
-    if (progress <= 0.2) {
-      // First 20% of sprint - slow start
-      return progress * 0.5;
-    } else if (progress <= 0.8) {
-      // Middle 60% of sprint - faster progress
-      return 0.1 + (progress - 0.2) * 1.2;
-    } else {
-      // Last 20% of sprint - slower finish
-      return 0.82 + (progress - 0.8) * 0.9;
+  /**
+   * Get sprint date information for burndown chart
+   */
+  private async getSprintDateInfo(selectedSprintPath?: string): Promise<{ dates: string[], workingDays: number }> {
+    try {
+      // Try to get actual sprint dates from Azure DevOps
+      if (selectedSprintPath) {
+        const currentProject = this.projectManager?.getCurrentProject();
+        if (currentProject) {
+          // Extract sprint name from path
+          const sprintName = selectedSprintPath.split('\\').pop() || 'Sprint';
+          
+          // For now, use standard 2-week sprint (10 working days)
+          // In a full implementation, you would query the Azure DevOps API for actual sprint dates
+          const sprintDays = 10;
+          const today = new Date();
+          const sprintStart = new Date(today);
+          sprintStart.setDate(today.getDate() - Math.floor(sprintDays / 2)); // Assume we're mid-sprint
+          
+          const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
+            const date = new Date(sprintStart);
+            date.setDate(date.getDate() + i);
+            return date.toISOString().split('T')[0];
+          });
+          
+          return { dates, workingDays: sprintDays };
+        }
+      }
+      
+      // Fallback: standard 2-week sprint
+      const sprintDays = 10;
+      const today = new Date();
+      const sprintStart = new Date(today);
+      sprintStart.setDate(today.getDate() - Math.floor(sprintDays / 2));
+      
+      const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
+        const date = new Date(sprintStart);
+        date.setDate(date.getDate() + i);
+        return date.toISOString().split('T')[0];
+      });
+      
+      return { dates, workingDays: sprintDays };
+    } catch (error) {
+      console.error('Error getting sprint date info:', error);
+      
+      // Fallback: standard 2-week sprint
+      const sprintDays = 10;
+      const today = new Date();
+      const sprintStart = new Date(today);
+      sprintStart.setDate(today.getDate() - sprintDays);
+      
+      const dates = Array.from({ length: sprintDays + 1 }, (_, i) => {
+        const date = new Date(sprintStart);
+        date.setDate(date.getDate() + i);
+        return date.toISOString().split('T')[0];
+      });
+      
+      return { dates, workingDays: sprintDays };
     }
   }
 
@@ -586,7 +840,469 @@ export class ScrumDashboard {
     };
   }
 
-  private generateDashboardHtml(metrics: ScrumMetrics, workItemMatrix?: { [type: string]: { [state: string]: number } }): string {
+  // ===== ENHANCED DATA FOUNDATION METHODS =====
+
+  /**
+   * Auto-detect the measurement type used in the current project
+   */
+  private detectMeasurementType(workItems: WorkItem[]): 'storyPoints' | 'hours' | 'count' {
+    const storyPointItems = workItems.filter(wi => wi.storyPoints && wi.storyPoints > 0);
+    const remainingWorkItems = workItems.filter(wi => wi.remainingWork && wi.remainingWork > 0);
+    
+    console.log(`[Dashboard] Measurement detection: ${storyPointItems.length} items with story points, ${remainingWorkItems.length} items with hours`);
+    
+    // Check for mixed effort types
+    if (storyPointItems.length > 0 && remainingWorkItems.length > 0) {
+      console.log(`[Dashboard] Mixed effort types detected - will standardize using conversion ratios`);
+      return this.getPreferredMeasurementType(storyPointItems.length, remainingWorkItems.length);
+    } else if (storyPointItems.length > 0) {
+      return 'storyPoints';
+    } else if (remainingWorkItems.length > 0) {
+      return 'hours';
+    } else {
+      // No measurable effort found - will result in no progress calculation
+      console.log(`[Dashboard] No measurable effort found in work items`);
+      return 'count'; // Keep for compatibility, but filterWorkItemsWithEffort will return empty array
+    }
+  }
+
+  /**
+   * Get preferred measurement type for mixed effort scenarios
+   */
+  private getPreferredMeasurementType(storyPointCount: number, hoursCount: number): 'storyPoints' | 'hours' {
+    const config = vscode.workspace.getConfiguration('azureDevOps.effortConversion');
+    const preferredUnit = config.get<string>('preferredUnit', 'auto');
+    
+    if (preferredUnit === 'storyPoints') {
+      return 'storyPoints';
+    } else if (preferredUnit === 'hours') {
+      return 'hours';
+    } else {
+      // Auto mode: use the most common unit
+      return storyPointCount >= hoursCount ? 'storyPoints' : 'hours';
+    }
+  }
+
+  /**
+   * Filter work items to only include those with measurable effort
+   */
+  private filterWorkItemsWithEffort(workItems: WorkItem[], measurementType: 'storyPoints' | 'hours' | 'count'): WorkItem[] {
+    // Check if we have mixed effort types
+    const hasStoryPoints = workItems.some(wi => wi.storyPoints && wi.storyPoints > 0);
+    const hasHours = workItems.some(wi => wi.remainingWork && wi.remainingWork > 0);
+    
+    if (hasStoryPoints && hasHours) {
+      // Mixed effort: include items with either story points OR hours
+      return workItems.filter(wi => 
+        (wi.storyPoints && wi.storyPoints > 0) || 
+        (wi.remainingWork && wi.remainingWork > 0)
+      );
+    } else if (measurementType === 'storyPoints') {
+      // Only include items that actually have story points assigned
+      return workItems.filter(wi => wi.storyPoints && wi.storyPoints > 0);
+    } else if (measurementType === 'hours') {
+      // Only include items that actually have remaining work assigned
+      return workItems.filter(wi => wi.remainingWork && wi.remainingWork > 0);
+    } else {
+      // Fallback: if no story points or hours, return empty array (no progress calculation)
+      return [];
+    }
+  }
+
+  /**
+   * Extract effort value from work item based on measurement type with conversion
+   */
+  private getWorkItemEffort(workItem: WorkItem, measurementType: 'storyPoints' | 'hours' | 'count'): number {
+    const config = vscode.workspace.getConfiguration('azureDevOps.effortConversion');
+    const conversionRatio = config.get<number>('storyPointsToHours', 8);
+    
+    if (measurementType === 'storyPoints') {
+      // If work item has story points, use them directly
+      if (workItem.storyPoints && workItem.storyPoints > 0) {
+        return workItem.storyPoints;
+      }
+      // If work item has hours but we want story points, convert
+      if (workItem.remainingWork && workItem.remainingWork > 0) {
+        return workItem.remainingWork / conversionRatio;
+      }
+      return 0;
+    } else if (measurementType === 'hours') {
+      // If work item has hours, use them directly
+      if (workItem.remainingWork && workItem.remainingWork > 0) {
+        return workItem.remainingWork;
+      }
+      // If work item has story points but we want hours, convert
+      if (workItem.storyPoints && workItem.storyPoints > 0) {
+        return workItem.storyPoints * conversionRatio;
+      }
+      return 0;
+    } else {
+      return 1; // Count mode: each item = 1 unit
+    }
+  }
+
+  /**
+   * Normalize work item states to standard categories
+   */
+  private normalizeWorkItemState(state: string): 'planned' | 'inProgress' | 'completed' {
+    const lowerState = state.toLowerCase();
+    
+    // Completed states
+    if (['closed', 'done', 'resolved', 'completed'].includes(lowerState)) {
+      return 'completed';
+    }
+    
+    // In progress states
+    if (['active', 'in progress', 'doing', 'committed', 'approved'].includes(lowerState)) {
+      return 'inProgress';
+    }
+    
+    // Default to planned for new/to do states
+    return 'planned';
+  }
+
+  /**
+   * Get measurement unit display name
+   */
+  private getMeasurementUnitName(measurementType: 'storyPoints' | 'hours' | 'count', workItems?: WorkItem[]): string {
+    if (workItems) {
+      const hasStoryPoints = workItems.some(wi => wi.storyPoints && wi.storyPoints > 0);
+      const hasHours = workItems.some(wi => wi.remainingWork && wi.remainingWork > 0);
+      
+      if (hasStoryPoints && hasHours) {
+        // Mixed effort - show conversion info
+        const config = vscode.workspace.getConfiguration('azureDevOps.effortConversion');
+        const conversionRatio = config.get<number>('storyPointsToHours', 8);
+        
+        switch (measurementType) {
+          case 'storyPoints': return `Story Points (${conversionRatio}h = 1pt)`;
+          case 'hours': return `Hours (1pt = ${conversionRatio}h)`;
+          case 'count': return 'Items';
+        }
+      }
+    }
+    
+    switch (measurementType) {
+      case 'storyPoints': return 'Story Points';
+      case 'hours': return 'Hours';
+      case 'count': return 'Items';
+    }
+  }
+
+  /**
+   * Calculate enhanced sprint progress with real data
+   */
+  private calculateEnhancedSprintProgress(workItems: WorkItem[]): SprintProgress & { measurementType: string; measurementUnit: string } {
+    const measurementType = this.detectMeasurementType(workItems);
+    const effortItems = this.filterWorkItemsWithEffort(workItems, measurementType);
+    const measurementUnit = this.getMeasurementUnitName(measurementType, workItems);
+    
+    console.log(`[Dashboard] Using ${measurementType} measurement for ${effortItems.length} effort items out of ${workItems.length} total items`);
+    
+    // If no items with measurable effort, show message
+    if (effortItems.length === 0) {
+      console.log(`[Dashboard] No work items with measurable effort (${measurementType}) found`);
+      return {
+        totalStoryPoints: 0,
+        completedStoryPoints: 0,
+        remainingStoryPoints: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+        remainingTasks: 0,
+        daysRemaining: this.calculateDaysRemaining(),
+        completionPercentage: 0,
+        measurementType,
+        measurementUnit: `No ${measurementUnit}`,
+        totalEffort: 0,
+        completedEffort: 0
+      };
+    }
+    
+    let totalEffort = 0;
+    let completedEffort = 0;
+    let totalTasks = 0;
+    let completedTasks = 0;
+    let totalStoryPoints = 0;
+    let completedStoryPoints = 0;
+    
+    effortItems.forEach(wi => {
+      const effort = this.getWorkItemEffort(wi, measurementType);
+      totalEffort += effort;
+      
+      if (this.isWorkItemCompleted(wi)) {
+        completedEffort += effort;
+      }
+      
+      // Keep legacy task counting for backward compatibility
+      if (wi.type === 'Task') {
+        totalTasks++;
+        if (this.isWorkItemCompleted(wi)) {
+          completedTasks++;
+        }
+      }
+      
+      // Keep legacy story point counting for backward compatibility
+      if (wi.storyPoints) {
+        totalStoryPoints += wi.storyPoints;
+        if (this.isWorkItemCompleted(wi)) {
+          completedStoryPoints += wi.storyPoints;
+        }
+      }
+    });
+    
+    const completionPercentage = totalEffort > 0 ? (completedEffort / totalEffort) * 100 : 0;
+    
+    console.log(`[Dashboard] Progress: ${completedEffort}/${totalEffort} ${measurementUnit} (${completionPercentage.toFixed(1)}%)`);
+    
+    return {
+      totalStoryPoints,
+      completedStoryPoints,
+      remainingStoryPoints: totalStoryPoints - completedStoryPoints,
+      totalTasks,
+      completedTasks,
+      remainingTasks: totalTasks - completedTasks,
+      daysRemaining: this.calculateDaysRemaining(),
+      completionPercentage,
+      measurementType,
+      measurementUnit,
+      totalEffort,
+      completedEffort
+    };
+  }
+
+  /**
+   * Get sprint work items with iteration path filtering
+   */
+  private async getSprintWorkItems(sprintPath?: string): Promise<WorkItem[]> {
+    try {
+      const currentProject = this.projectManager?.getCurrentProject();
+      if (!currentProject) {
+        throw new Error('No project selected');
+      }
+
+      let wiql = `
+        SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], 
+               [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], 
+               [Microsoft.VSTS.Scheduling.RemainingWork], [System.IterationPath]
+        FROM WorkItems 
+        WHERE [System.TeamProject] = '${currentProject.name}'
+      `;
+
+      if (sprintPath) {
+        wiql += ` AND [System.IterationPath] = '${sprintPath}'`;
+      }
+
+      wiql += ` ORDER BY [System.WorkItemType], [System.Id]`;
+
+      const queryResponse = await fetch(
+        `${this.apiClient.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': this.authService.getAuthHeader() || '',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: wiql })
+        }
+      );
+
+      if (!queryResponse.ok) {
+        throw new Error(`Failed to query sprint work items: ${queryResponse.status}`);
+      }
+
+      const queryData = await queryResponse.json();
+      const workItemIds = queryData.workItems?.map((wi: any) => wi.id) || [];
+
+      if (workItemIds.length === 0) {
+        return [];
+      }
+
+      const idsParam = workItemIds.join(',');
+      const detailsResponse = await fetch(
+        `${this.apiClient.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&api-version=7.0`,
+        {
+          headers: {
+            'Authorization': this.authService.getAuthHeader() || '',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!detailsResponse.ok) {
+        throw new Error(`Failed to get sprint work item details: ${detailsResponse.status}`);
+      }
+
+      const detailsData = await detailsResponse.json();
+      return detailsData.value.map((item: any) => this.mapAzureWorkItemToWorkItem(item));
+    } catch (error) {
+      console.error('Failed to get sprint work items:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Generate sprint metrics matrix with effort totals
+   */
+  private async generateSprintMetricsMatrix(): Promise<{ [sprint: string]: { [state: string]: { count: number; effort: number; unit: string } } }> {
+    try {
+      const allWorkItems = await this.getAllWorkItems();
+      const measurementType = this.detectMeasurementType(allWorkItems);
+      const effortItems = this.filterWorkItemsWithEffort(allWorkItems, measurementType);
+      const measurementUnit = this.getMeasurementUnitName(measurementType, allWorkItems);
+      
+      const matrix: { [sprint: string]: { [state: string]: { count: number; effort: number; unit: string } } } = {};
+      
+      effortItems.forEach(wi => {
+        // Extract sprint name from iteration path
+        const iterationPath = wi.fields?.['System.IterationPath'] || 'No Sprint';
+        const sprintName = this.extractSprintNameFromPath(iterationPath);
+        const normalizedState = this.normalizeWorkItemState(wi.state);
+        const effort = this.getWorkItemEffort(wi, measurementType);
+        
+        if (!matrix[sprintName]) {
+          matrix[sprintName] = {};
+        }
+        
+        if (!matrix[sprintName][normalizedState]) {
+          matrix[sprintName][normalizedState] = { count: 0, effort: 0, unit: measurementUnit };
+        }
+        
+        matrix[sprintName][normalizedState].count++;
+        matrix[sprintName][normalizedState].effort += effort;
+      });
+      
+      console.log(`[Dashboard] Sprint metrics matrix generated for ${Object.keys(matrix).length} sprints`);
+      return matrix;
+    } catch (error) {
+      console.error('Failed to generate sprint metrics matrix:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Extract sprint name from iteration path
+   */
+  private extractSprintNameFromPath(iterationPath: string): string {
+    if (!iterationPath || iterationPath === '') {
+      return 'No Sprint';
+    }
+    
+    // Handle paths like "\ProjectName\Iteration\Sprint 1" or "\ProjectName\Sprint 1"
+    const parts = iterationPath.split('\\').filter(part => part.trim() !== '');
+    
+    if (parts.length === 0) {
+      return 'No Sprint';
+    }
+    
+    // Return the last part (sprint name) or project name if no sprint
+    const lastPart = parts[parts.length - 1];
+    
+    // If the last part is just the project name, return "No Sprint"
+    const currentProject = this.projectManager?.getCurrentProject();
+    if (currentProject && lastPart === currentProject.name) {
+      return 'No Sprint';
+    }
+    
+    return lastPart;
+  }
+
+  /**
+   * Generate HTML for sprint metrics matrix
+   */
+  private generateSprintMetricsHtml(matrix: { [sprint: string]: { [state: string]: { count: number; effort: number; unit: string } } }): string {
+    if (!matrix || Object.keys(matrix).length === 0) {
+      return '';
+    }
+
+    // Get all unique states
+    const allStates = new Set<string>();
+    Object.values(matrix).forEach(sprintStates => {
+      Object.keys(sprintStates).forEach(state => allStates.add(state));
+    });
+    const sortedStates = Array.from(allStates).sort();
+
+    // Get all sprints
+    const sprints = Object.keys(matrix).sort();
+
+    // Calculate totals
+    const stateTotals: { [state: string]: { count: number; effort: number } } = {};
+    const sprintTotals: { [sprint: string]: { count: number; effort: number } } = {};
+    let grandTotal = { count: 0, effort: 0 };
+    let measurementUnit = 'Items';
+
+    sprints.forEach(sprint => {
+      sprintTotals[sprint] = { count: 0, effort: 0 };
+      sortedStates.forEach(state => {
+        const data = matrix[sprint][state];
+        if (data) {
+          sprintTotals[sprint].count += data.count;
+          sprintTotals[sprint].effort += data.effort;
+          
+          if (!stateTotals[state]) {
+            stateTotals[state] = { count: 0, effort: 0 };
+          }
+          stateTotals[state].count += data.count;
+          stateTotals[state].effort += data.effort;
+          
+          grandTotal.count += data.count;
+          grandTotal.effort += data.effort;
+          
+          measurementUnit = data.unit;
+        }
+      });
+    });
+
+    return `
+        <!-- Sprint Metrics Matrix -->
+        <div class="metric-card matrix-card">
+            <div class="metric-title">Sprint Progress Matrix (Sprint vs State) - ${measurementUnit}</div>
+            <table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Sprint</th>
+                        ${sortedStates.map(state => `<th>${state}</th>`).join('')}
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${sprints.map(sprint => `
+                        <tr>
+                            <td class="type-header">${sprint}</td>
+                            ${sortedStates.map(state => {
+                                const data = matrix[sprint][state];
+                                const count = data?.count || 0;
+                                const effort = data?.effort || 0;
+                                const display = effort > 0 ? `${effort} ${measurementUnit.toLowerCase()}` : count > 0 ? `${count} items` : '0';
+                                return `<td><span class="matrix-count ${count === 0 ? 'zero' : ''}" title="${count} items, ${effort} ${measurementUnit.toLowerCase()}">${display}</span></td>`;
+                            }).join('')}
+                            <td><span class="matrix-count" title="${sprintTotals[sprint].count} items, ${sprintTotals[sprint].effort} ${measurementUnit.toLowerCase()}">${sprintTotals[sprint].effort > 0 ? `${sprintTotals[sprint].effort} ${measurementUnit.toLowerCase()}` : `${sprintTotals[sprint].count} items`}</span></td>
+                        </tr>
+                    `).join('')}
+                    <tr style="border-top: 2px solid var(--vscode-widget-border);">
+                        <td class="type-header"><strong>Total</strong></td>
+                        ${sortedStates.map(state => {
+                            const data = stateTotals[state];
+                            const count = data?.count || 0;
+                            const effort = data?.effort || 0;
+                            const display = effort > 0 ? `${effort} ${measurementUnit.toLowerCase()}` : count > 0 ? `${count} items` : '0';
+                            return `<td><span class="matrix-count" title="${count} items, ${effort} ${measurementUnit.toLowerCase()}">${display}</span></td>`;
+                        }).join('')}
+                        <td><span class="matrix-count"><strong title="${grandTotal.count} items, ${grandTotal.effort} ${measurementUnit.toLowerCase()}">${grandTotal.effort > 0 ? `${grandTotal.effort} ${measurementUnit.toLowerCase()}` : `${grandTotal.count} items`}</strong></span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    `;
+  }
+
+  private generateDashboardHtml(
+    metricsWithSprint: ScrumMetrics & { sprintName: string, availableSprints: { id: string, name: string, path: string }[] }, 
+    workItemMatrix?: { [type: string]: { [state: string]: number } },
+    sprintMetricsMatrix?: { [sprint: string]: { [state: string]: { count: number; effort: number; unit: string } } }
+  ): string {
+    const metrics = metricsWithSprint;
+    const sprintName = metricsWithSprint.sprintName;
+    const availableSprints = metricsWithSprint.availableSprints;
     return `
 <!DOCTYPE html>
 <html lang="en">
@@ -740,23 +1456,94 @@ export class ScrumDashboard {
             color: var(--vscode-descriptionForeground);
             font-weight: normal;
         }
+        
+        /* Sprint Selector Styles */
+        .sprint-selector-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: var(--vscode-editor-widget-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 8px;
+        }
+        .sprint-selector-label {
+            font-weight: 600;
+            color: var(--vscode-foreground);
+        }
+        .sprint-selector {
+            padding: 8px 12px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .sprint-selector:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+        .refresh-button {
+            padding: 8px 16px;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .refresh-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+        .refresh-button:active {
+            background-color: var(--vscode-button-activeBackground);
+        }
     </style>
 </head>
 <body>
+    <!-- Sprint Selector -->
+    <div class="sprint-selector-container">
+        <label for="sprintSelector" class="sprint-selector-label">Select Sprint:</label>
+        <select id="sprintSelector" class="sprint-selector">
+            ${availableSprints.map(sprint => `
+                <option value="${sprint.path}" ${sprint.name === sprintName ? 'selected' : ''}>
+                    ${sprint.name}
+                </option>
+            `).join('')}
+        </select>
+        <button id="refreshDashboard" class="refresh-button">Refresh Dashboard</button>
+    </div>
+
     <div class="dashboard-container">
         <!-- Sprint Progress Card -->
         <div class="metric-card">
-            <div class="metric-title">Sprint Progress</div>
+            <div class="metric-title">Sprint Progress - ${sprintName}</div>
             <div class="metric-value">${metrics.sprintProgress.completionPercentage.toFixed(1)}%</div>
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${metrics.sprintProgress.completionPercentage}%"></div>
             </div>
             <div class="metric-subtitle">
-                ${metrics.sprintProgress.completedStoryPoints} / ${metrics.sprintProgress.totalStoryPoints} Story Points
+                <strong>Measurement:</strong> ${(metrics.sprintProgress as any).measurementUnit || 'Story Points'}
             </div>
-            <div class="metric-subtitle">
-                ${metrics.sprintProgress.completedTasks} / ${metrics.sprintProgress.totalTasks} Tasks Completed
-            </div>
+            ${(metrics.sprintProgress as any).totalEffort === 0 ? `
+                <div class="metric-subtitle" style="color: var(--vscode-errorForeground);">
+                    No work items with measurable effort found in this sprint
+                </div>
+                <div class="metric-subtitle">
+                    Please assign story points or remaining work hours to work items
+                </div>
+            ` : (metrics.sprintProgress as any).measurementType === 'storyPoints' ? `
+                <div class="metric-subtitle">
+                    ${(metrics.sprintProgress as any).completedEffort} / ${(metrics.sprintProgress as any).totalEffort} Story Points
+                </div>
+            ` : `
+                <div class="metric-subtitle">
+                    ${(metrics.sprintProgress as any).completedEffort} / ${(metrics.sprintProgress as any).totalEffort} Hours
+                </div>
+            `}
             <div class="metric-subtitle">
                 ${metrics.sprintProgress.daysRemaining} Days Remaining
             </div>
@@ -786,27 +1573,7 @@ export class ScrumDashboard {
             </div>
         </div>
 
-        <!-- Work Item Distribution by Type -->
-        <div class="metric-card">
-            <div class="metric-title">Work Items by Type</div>
-            ${Object.entries(metrics.workItemDistribution.byType).map(([type, count]) => `
-                <div class="distribution-item">
-                    <span class="distribution-label">${type}</span>
-                    <span class="distribution-value">${count}</span>
-                </div>
-            `).join('')}
-        </div>
 
-        <!-- Work Item Distribution by State -->
-        <div class="metric-card">
-            <div class="metric-title">Work Items by State</div>
-            ${Object.entries(metrics.workItemDistribution.byState).map(([state, count]) => `
-                <div class="distribution-item">
-                    <span class="distribution-label">${state}</span>
-                    <span class="distribution-value">${count}</span>
-                </div>
-            `).join('')}
-        </div>
 
         <!-- Work Item Distribution by Assignee -->
         <div class="metric-card">
@@ -820,9 +1587,36 @@ export class ScrumDashboard {
         </div>
 
         ${workItemMatrix ? this.generateMatrixHtml(workItemMatrix) : ''}
+        ${sprintMetricsMatrix ? this.generateSprintMetricsHtml(sprintMetricsMatrix) : ''}
     </div>
 
     <script>
+        // Sprint selector functionality
+        const vscode = acquireVsCodeApi();
+        
+        document.getElementById('refreshDashboard').addEventListener('click', function() {
+            const selectedSprintPath = document.getElementById('sprintSelector').value;
+            console.log('Refreshing dashboard for sprint:', selectedSprintPath);
+            
+            // Send message to VS Code extension to refresh with selected sprint
+            vscode.postMessage({
+                command: 'refreshSprint',
+                sprintPath: selectedSprintPath
+            });
+        });
+        
+        // Auto-refresh when sprint selection changes
+        document.getElementById('sprintSelector').addEventListener('change', function() {
+            const selectedSprintPath = this.value;
+            console.log('Sprint selection changed to:', selectedSprintPath);
+            
+            // Send message to VS Code extension to refresh with selected sprint
+            vscode.postMessage({
+                command: 'refreshSprint',
+                sprintPath: selectedSprintPath
+            });
+        });
+
         // Get VS Code theme colors with fallbacks
         const getThemeColor = (cssVar, fallback) => {
             const style = getComputedStyle(document.body);
