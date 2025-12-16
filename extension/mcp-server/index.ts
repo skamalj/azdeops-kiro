@@ -92,6 +92,13 @@ const ExecuteTestCaseSchema = z.object({
   executedBy: z.string(),
 });
 
+// Sprint management schema
+const GetSprintsSchema = z.object({
+  projectId: z.string().optional(),
+  teamId: z.string().optional(),
+  state: z.enum(['current', 'future', 'closed']).optional(),
+});
+
 // Batch operation schemas
 const BatchCreateUserStoriesSchema = z.object({
   stories: z.array(z.object({
@@ -612,6 +619,174 @@ class AzureDevOpsApiClient {
       fields: fields
     };
   }
+
+  // Sprint Management Method
+  async getSprints(projectId?: string, teamId?: string, state?: string): Promise<any[]> {
+    const projectToUse = projectId || this.projectName;
+    
+    try {
+      console.log(`[DEBUG] Getting sprints for project: ${projectToUse}`);
+      console.log(`[DEBUG] Organization URL: ${this.organizationUrl}`);
+      
+      // Approach 1: Try classification nodes API to get iterations
+      let url = `${this.organizationUrl}/${projectToUse}/_apis/wit/classificationnodes/iterations?api-version=7.0&$depth=2`;
+      console.log(`[DEBUG] Trying classification nodes API: ${url}`);
+      
+      let response = await fetch(url, {
+        headers: {
+          'Authorization': this.getAuthHeader(),
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log(`[DEBUG] Classification nodes response: ${response.status} ${response.statusText}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[DEBUG] Classification nodes data:', JSON.stringify(data, null, 2));
+        
+        const iterations: any[] = [];
+        
+        // Handle nested structure
+        if (data.children) {
+          data.children.forEach((child: any) => {
+            console.log(`[DEBUG] Found child iteration: ${child.name}`);
+            iterations.push({
+              id: child.id,
+              name: child.name,
+              path: child.path,
+              url: child.url,
+              attributes: child.attributes || {},
+              hasChildren: child.hasChildren || false,
+              structureType: child.structureType
+            });
+          });
+        }
+        
+        console.log(`[DEBUG] Found ${iterations.length} iterations via classification nodes`);
+        return iterations;
+      }
+      
+      // Approach 2: Try team settings API with different team name variations
+      const teamVariations = [
+        teamId,
+        `${projectToUse} Team`,
+        projectToUse,
+        `${projectToUse}\\${projectToUse} Team`
+      ].filter(Boolean);
+      
+      for (const teamName of teamVariations) {
+        try {
+          console.log(`[DEBUG] Trying team settings API with team: ${teamName}`);
+          
+          let teamUrl = `${this.organizationUrl}/${projectToUse}/${teamName}/_apis/work/teamsettings/iterations?api-version=7.0`;
+          if (state) {
+            teamUrl += `&$timeframe=${state}`;
+          }
+          
+          response = await fetch(teamUrl, {
+            headers: {
+              'Authorization': this.getAuthHeader(),
+              'Content-Type': 'application/json'
+            }
+          });
+
+          console.log(`[DEBUG] Team settings response for ${teamName}: ${response.status} ${response.statusText}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[DEBUG] Team settings data for ${teamName}:`, JSON.stringify(data, null, 2));
+            return data.value || [];
+          }
+        } catch (teamError) {
+          console.log(`[DEBUG] Team ${teamName} failed:`, teamError);
+        }
+      }
+      
+      // Approach 3: Query work items to find iteration paths
+      console.log('[DEBUG] Trying work item query approach...');
+      
+      const wiql = `
+        SELECT [System.Id], [System.IterationPath]
+        FROM WorkItems 
+        WHERE [System.TeamProject] = '${projectToUse}'
+        AND [System.IterationPath] <> ''
+        AND [System.IterationPath] <> '${projectToUse}'
+      `;
+
+      response = await fetch(
+        `${this.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': this.getAuthHeader(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: wiql })
+        }
+      );
+
+      console.log(`[DEBUG] WIQL query response: ${response.status} ${response.statusText}`);
+
+      if (response.ok) {
+        const queryData = await response.json();
+        console.log('[DEBUG] WIQL query data:', JSON.stringify(queryData, null, 2));
+        
+        const iterationPaths = new Set<string>();
+        
+        if (queryData.workItems && queryData.workItems.length > 0) {
+          const workItemIds = queryData.workItems.map((wi: any) => wi.id);
+          const idsParam = workItemIds.slice(0, 50).join(',');
+          
+          const detailsResponse = await fetch(
+            `${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&fields=System.IterationPath&api-version=7.0`,
+            {
+              headers: {
+                'Authorization': this.getAuthHeader(),
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          if (detailsResponse.ok) {
+            const detailsData = await detailsResponse.json();
+            console.log('[DEBUG] Work item details:', JSON.stringify(detailsData, null, 2));
+            
+            detailsData.value.forEach((item: any) => {
+              const iterationPath = item.fields?.['System.IterationPath'];
+              if (iterationPath && iterationPath !== projectToUse) {
+                console.log(`[DEBUG] Found iteration path: ${iterationPath}`);
+                iterationPaths.add(iterationPath);
+              }
+            });
+          }
+        }
+        
+        const sprints = Array.from(iterationPaths).map((path, index) => {
+          const pathParts = path.split('\\');
+          const name = pathParts[pathParts.length - 1];
+          return {
+            id: `sprint-${index + 1}`,
+            name: name,
+            path: path,
+            attributes: {},
+            hasChildren: false,
+            structureType: 'iteration'
+          };
+        });
+        
+        console.log(`[DEBUG] Found ${sprints.length} sprints via work item query`);
+        return sprints;
+      }
+      
+      console.log('[DEBUG] All approaches failed, returning empty array');
+      return [];
+      
+    } catch (error) {
+      console.error('[DEBUG] Error getting sprints:', error);
+      return [];
+    }
+  }
 }
 
 export class AzureDevOpsCoreServer {
@@ -941,6 +1116,18 @@ export class AzureDevOpsCoreServer {
               required: ['testPlans'],
             },
           },
+          {
+            name: 'get_sprints',
+            description: 'Get all sprints/iterations',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                projectId: { type: 'string', description: 'Project ID (optional)' },
+                teamId: { type: 'string', description: 'Team ID (optional)' },
+                state: { type: 'string', enum: ['current', 'future', 'closed'], description: 'Sprint state filter' },
+              },
+            },
+          },
         ],
       };
     });
@@ -982,6 +1169,8 @@ export class AzureDevOpsCoreServer {
             return await this.batchCreateTestCases(args);
           case 'batch_create_test_plans':
             return await this.batchCreateTestPlans(args);
+          case 'get_sprints':
+            return await this.getSprints(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -1464,6 +1653,26 @@ export class AzureDevOpsCoreServer {
           text: `✅ Batch Test Plan Creation Complete\n\nSummary:\n- Total requested: ${testPlans.length}\n- Successfully created: ${successCount}\n- Errors: ${errorCount}\n\nCreated Test Plans:\n${successList}${errorList}`,
         },
       ],
+    };
+  }
+
+  private async getSprints(args: any) {
+    this.ensureInitialized();
+    const { projectId, teamId, state } = GetSprintsSchema.parse(args);
+    
+    const sprints = await this.apiClient.getSprints(projectId, teamId, state);
+    
+    const sprintList = sprints.map(sprint => 
+      `- ${sprint.name} (${sprint.id}): ${sprint.path || 'No path'} [${sprint.structureType || 'unknown'}]`
+    ).join('\n');
+    
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Found ${sprints.length} sprint(s):\n\n${sprintList || 'No sprints found.'}\n\n[DEBUG] Check console for detailed debug information.`
+        }
+      ]
     };
   }
 
