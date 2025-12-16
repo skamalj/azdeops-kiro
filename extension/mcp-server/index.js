@@ -77,11 +77,34 @@ const ExecuteTestCaseSchema = zod_1.z.object({
     comment: zod_1.z.string().optional(),
     executedBy: zod_1.z.string(),
 });
-// Sprint management schema
+// Sprint management schemas
 const GetSprintsSchema = zod_1.z.object({
     projectId: zod_1.z.string().optional(),
     teamId: zod_1.z.string().optional(),
     state: zod_1.z.enum(['current', 'future', 'closed']).optional(),
+});
+const GetCurrentSprintSchema = zod_1.z.object({
+    projectId: zod_1.z.string().optional(),
+    teamId: zod_1.z.string().optional(),
+});
+const GetSprintSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().optional(),
+    iterationPath: zod_1.z.string().optional(),
+});
+const GetSprintWorkItemsSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().optional(),
+    iterationPath: zod_1.z.string().optional(),
+    workItemTypes: zod_1.z.array(zod_1.z.string()).optional(),
+    includeCompleted: zod_1.z.boolean().default(true),
+});
+const AssignWorkItemsToSprintSchema = zod_1.z.object({
+    workItemIds: zod_1.z.array(zod_1.z.number().int().positive()),
+    sprintId: zod_1.z.string().optional(),
+    iterationPath: zod_1.z.string().optional(),
+});
+const RemoveWorkItemsFromSprintSchema = zod_1.z.object({
+    workItemIds: zod_1.z.array(zod_1.z.number().int().positive()),
+    sprintId: zod_1.z.string().optional(),
 });
 // Batch operation schemas
 const BatchCreateUserStoriesSchema = zod_1.z.object({
@@ -625,6 +648,285 @@ class AzureDevOpsApiClient {
             return [];
         }
     }
+    async getCurrentSprint(projectId, teamId) {
+        console.log('[DEBUG] Getting current sprint...');
+        try {
+            const sprints = await this.getSprints(projectId, teamId, 'current');
+            const currentSprint = sprints.length > 0 ? sprints[0] : null;
+            console.log(`[DEBUG] Current sprint found: ${currentSprint ? currentSprint.name : 'None'}`);
+            return currentSprint;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error getting current sprint:', error);
+            return null;
+        }
+    }
+    async getSprint(sprintId, iterationPath) {
+        console.log(`[DEBUG] Getting sprint by ID: ${sprintId} or path: ${iterationPath}`);
+        try {
+            if (sprintId) {
+                // Try to find sprint by ID in the list of all sprints
+                const allSprints = await this.getSprints();
+                const sprint = allSprints.find(s => s.id === sprintId || s.id === parseInt(sprintId));
+                if (sprint) {
+                    console.log(`[DEBUG] Found sprint by ID: ${sprint.name}`);
+                    return sprint;
+                }
+            }
+            if (iterationPath) {
+                // Try to find sprint by iteration path
+                const allSprints = await this.getSprints();
+                const sprint = allSprints.find(s => s.path === iterationPath);
+                if (sprint) {
+                    console.log(`[DEBUG] Found sprint by path: ${sprint.name}`);
+                    return sprint;
+                }
+            }
+            console.log('[DEBUG] Sprint not found');
+            return null;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error getting sprint:', error);
+            return null;
+        }
+    }
+    async getSprintWorkItems(sprintId, iterationPath, workItemTypes, includeCompleted = true) {
+        console.log(`[DEBUG] Getting work items for sprint ID: ${sprintId} or path: ${iterationPath}`);
+        try {
+            let pathToUse = iterationPath;
+            // If we have sprintId but no iterationPath, get the path from sprint details
+            if (sprintId && !iterationPath) {
+                const sprint = await this.getSprint(sprintId);
+                if (sprint) {
+                    pathToUse = sprint.path;
+                    console.log(`[DEBUG] Resolved sprint path: ${pathToUse}`);
+                }
+            }
+            if (!pathToUse) {
+                console.log('[DEBUG] No valid iteration path found');
+                return [];
+            }
+            // Build WIQL query to get work items in this iteration
+            let wiql = `
+        SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], 
+               [System.AssignedTo], [Microsoft.VSTS.Scheduling.StoryPoints], 
+               [Microsoft.VSTS.Scheduling.RemainingWork], [System.IterationPath]
+        FROM WorkItems 
+        WHERE [System.TeamProject] = '${this.projectName}'
+        AND [System.IterationPath] = '${pathToUse}'
+      `;
+            if (workItemTypes && workItemTypes.length > 0) {
+                wiql += ` AND [System.WorkItemType] IN (${workItemTypes.map(type => `'${type}'`).join(', ')})`;
+            }
+            if (!includeCompleted) {
+                wiql += ` AND [System.State] NOT IN ('Closed', 'Done', 'Resolved', 'Completed')`;
+            }
+            wiql += ` ORDER BY [System.WorkItemType], [System.Id]`;
+            console.log(`[DEBUG] WIQL query: ${wiql}`);
+            const queryResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/wiql?api-version=7.0`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query: wiql })
+            });
+            if (!queryResponse.ok) {
+                console.log(`[DEBUG] WIQL query failed: ${queryResponse.status} ${queryResponse.statusText}`);
+                return [];
+            }
+            const queryData = await queryResponse.json();
+            const workItemIds = queryData.workItems?.map((wi) => wi.id) || [];
+            console.log(`[DEBUG] Found ${workItemIds.length} work item IDs in sprint`);
+            if (workItemIds.length === 0) {
+                return [];
+            }
+            // Get detailed work item information
+            const idsParam = workItemIds.join(',');
+            const detailsResponse = await fetch(`${this.getBaseUrl()}/_apis/wit/workitems?ids=${idsParam}&api-version=7.0`, {
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (!detailsResponse.ok) {
+                console.log(`[DEBUG] Work item details failed: ${detailsResponse.status} ${detailsResponse.statusText}`);
+                return [];
+            }
+            const detailsData = await detailsResponse.json();
+            const workItems = detailsData.value.map((item) => this.mapAzureWorkItemToWorkItem(item));
+            console.log(`[DEBUG] Retrieved ${workItems.length} work items with details`);
+            return workItems;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error getting sprint work items:', error);
+            return [];
+        }
+    }
+    async assignWorkItemsToSprint(workItemIds, sprintId, iterationPath) {
+        console.log(`[DEBUG] Assigning ${workItemIds.length} work items to sprint ID: ${sprintId} or path: ${iterationPath}`);
+        try {
+            let pathToUse = iterationPath;
+            // If we have sprintId but no iterationPath, get the path from sprint details
+            if (sprintId && !iterationPath) {
+                const sprint = await this.getSprint(sprintId);
+                if (sprint) {
+                    pathToUse = sprint.path;
+                    console.log(`[DEBUG] Resolved sprint path: ${pathToUse}`);
+                }
+            }
+            if (!pathToUse) {
+                console.log('[DEBUG] No valid iteration path found for assignment');
+                return [{
+                        workItemId: 0,
+                        success: false,
+                        message: 'No valid sprint path found. Either sprintId or iterationPath must be provided.'
+                    }];
+            }
+            const results = [];
+            for (const workItemId of workItemIds) {
+                try {
+                    console.log(`[DEBUG] Assigning work item ${workItemId} to path: ${pathToUse}`);
+                    const patchDocument = [
+                        {
+                            op: 'replace',
+                            path: '/fields/System.IterationPath',
+                            value: pathToUse
+                        }
+                    ];
+                    const url = `${this.getBaseUrl()}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                    console.log(`[DEBUG] Request URL: ${url}`);
+                    console.log(`[DEBUG] Patch document: ${JSON.stringify(patchDocument, null, 2)}`);
+                    const response = await fetch(url, {
+                        method: 'PATCH',
+                        headers: {
+                            'Authorization': this.getAuthHeader(),
+                            'Content-Type': 'application/json-patch+json'
+                        },
+                        body: JSON.stringify(patchDocument)
+                    });
+                    if (response.ok) {
+                        console.log(`[DEBUG] Successfully assigned work item ${workItemId}`);
+                        results.push({
+                            workItemId,
+                            success: true,
+                            message: 'Assigned to sprint successfully'
+                        });
+                    }
+                    else {
+                        const errorText = await response.text();
+                        console.log(`[DEBUG] Failed to assign work item ${workItemId}: ${response.status} ${response.statusText} - ${errorText}`);
+                        // Try to parse error details
+                        let errorDetails = errorText;
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            errorDetails = errorJson.message || errorJson.value?.Message || errorText;
+                        }
+                        catch (e) {
+                            // Keep original error text if not JSON
+                        }
+                        results.push({
+                            workItemId,
+                            success: false,
+                            message: `Failed: ${response.status} ${response.statusText} - ${errorDetails}`
+                        });
+                    }
+                }
+                catch (error) {
+                    console.log(`[DEBUG] Error assigning work item ${workItemId}:`, error);
+                    results.push({
+                        workItemId,
+                        success: false,
+                        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    });
+                }
+            }
+            console.log(`[DEBUG] Assignment complete. ${results.filter(r => r.success).length}/${results.length} successful`);
+            return results;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error in assignWorkItemsToSprint:', error);
+            return [{
+                    workItemId: 0,
+                    success: false,
+                    message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }];
+        }
+    }
+    async removeWorkItemsFromSprint(workItemIds, sprintId) {
+        console.log(`[DEBUG] Removing ${workItemIds.length} work items from sprint`);
+        try {
+            const results = [];
+            for (const workItemId of workItemIds) {
+                try {
+                    console.log(`[DEBUG] Removing work item ${workItemId} from sprint`);
+                    // Set iteration path to the project root (removes from sprint)
+                    const patchDocument = [
+                        {
+                            op: 'replace',
+                            path: '/fields/System.IterationPath',
+                            value: this.projectName
+                        }
+                    ];
+                    const url = `${this.getBaseUrl()}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                    console.log(`[DEBUG] Request URL: ${url}`);
+                    console.log(`[DEBUG] Patch document: ${JSON.stringify(patchDocument, null, 2)}`);
+                    const response = await fetch(url, {
+                        method: 'PATCH',
+                        headers: {
+                            'Authorization': this.getAuthHeader(),
+                            'Content-Type': 'application/json-patch+json'
+                        },
+                        body: JSON.stringify(patchDocument)
+                    });
+                    if (response.ok) {
+                        console.log(`[DEBUG] Successfully removed work item ${workItemId} from sprint`);
+                        results.push({
+                            workItemId,
+                            success: true,
+                            message: 'Removed from sprint successfully'
+                        });
+                    }
+                    else {
+                        const errorText = await response.text();
+                        console.log(`[DEBUG] Failed to remove work item ${workItemId}: ${response.status} ${response.statusText} - ${errorText}`);
+                        // Try to parse error details
+                        let errorDetails = errorText;
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            errorDetails = errorJson.message || errorJson.value?.Message || errorText;
+                        }
+                        catch (e) {
+                            // Keep original error text if not JSON
+                        }
+                        results.push({
+                            workItemId,
+                            success: false,
+                            message: `Failed: ${response.status} ${response.statusText} - ${errorDetails}`
+                        });
+                    }
+                }
+                catch (error) {
+                    console.log(`[DEBUG] Error removing work item ${workItemId}:`, error);
+                    results.push({
+                        workItemId,
+                        success: false,
+                        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    });
+                }
+            }
+            console.log(`[DEBUG] Removal complete. ${results.filter(r => r.success).length}/${results.length} successful`);
+            return results;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error in removeWorkItemsFromSprint:', error);
+            return [{
+                    workItemId: 0,
+                    success: false,
+                    message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                }];
+        }
+    }
 }
 class AzureDevOpsCoreServer {
     server;
@@ -945,7 +1247,7 @@ class AzureDevOpsCoreServer {
                     },
                     {
                         name: 'get_sprints',
-                        description: 'Get all sprints/iterations',
+                        description: 'Get all sprints/iterations. Returns sprint details including the correct path format for use in other sprint tools.',
                         inputSchema: {
                             type: 'object',
                             properties: {
@@ -953,6 +1255,66 @@ class AzureDevOpsCoreServer {
                                 teamId: { type: 'string', description: 'Team ID (optional)' },
                                 state: { type: 'string', enum: ['current', 'future', 'closed'], description: 'Sprint state filter' },
                             },
+                        },
+                    },
+                    {
+                        name: 'get_current_sprint',
+                        description: 'Get the currently active sprint',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                                teamId: { type: 'string', description: 'Team ID (optional)' },
+                            },
+                        },
+                    },
+                    {
+                        name: 'get_sprint',
+                        description: 'Get a specific sprint by ID or iteration path',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                                iterationPath: { type: 'string', description: 'Iteration path in format: ProjectName\\SprintName (e.g., "MyProject\\Sprint 1")' },
+                            },
+                        },
+                    },
+                    {
+                        name: 'get_sprint_work_items',
+                        description: 'Get work items assigned to a sprint',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                                iterationPath: { type: 'string', description: 'Iteration path in format: ProjectName\\SprintName (e.g., "MyProject\\Sprint 1")' },
+                                workItemTypes: { type: 'array', items: { type: 'string' }, description: 'Filter by work item types' },
+                                includeCompleted: { type: 'boolean', default: true, description: 'Include completed work items' },
+                            },
+                        },
+                    },
+                    {
+                        name: 'assign_work_items_to_sprint',
+                        description: 'Assign work items to a sprint. Either sprintId or iterationPath must be provided.',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                workItemIds: { type: 'array', items: { type: 'number' }, description: 'Work item IDs to assign' },
+                                sprintId: { type: 'string', description: 'Sprint ID (preferred method)' },
+                                iterationPath: { type: 'string', description: 'Iteration path in format: ProjectName\\SprintName (e.g., "MyProject\\Sprint 1"). Use this format if sprintId is not available.' },
+                            },
+                            required: ['workItemIds'],
+                        },
+                    },
+                    {
+                        name: 'remove_work_items_from_sprint',
+                        description: 'Remove work items from sprint',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                workItemIds: { type: 'array', items: { type: 'number' }, description: 'Work item IDs to remove' },
+                                sprintId: { type: 'string', description: 'Sprint ID (optional)' },
+                            },
+                            required: ['workItemIds'],
                         },
                     },
                 ],
@@ -996,6 +1358,16 @@ class AzureDevOpsCoreServer {
                         return await this.batchCreateTestPlans(args);
                     case 'get_sprints':
                         return await this.getSprints(args);
+                    case 'get_current_sprint':
+                        return await this.getCurrentSprint(args);
+                    case 'get_sprint':
+                        return await this.getSprint(args);
+                    case 'get_sprint_work_items':
+                        return await this.getSprintWorkItems(args);
+                    case 'assign_work_items_to_sprint':
+                        return await this.assignWorkItemsToSprint(args);
+                    case 'remove_work_items_from_sprint':
+                        return await this.removeWorkItemsFromSprint(args);
                     default:
                         throw new Error(`Unknown tool: ${name}`);
                 }
@@ -1400,12 +1772,145 @@ class AzureDevOpsCoreServer {
         this.ensureInitialized();
         const { projectId, teamId, state } = GetSprintsSchema.parse(args);
         const sprints = await this.apiClient.getSprints(projectId, teamId, state);
-        const sprintList = sprints.map(sprint => `- ${sprint.name} (${sprint.id}): ${sprint.path || 'No path'} [${sprint.structureType || 'unknown'}]`).join('\n');
+        const sprintList = sprints.map(sprint => {
+            // Extract the correct iteration path format for assignment
+            const pathParts = sprint.path ? sprint.path.split('\\') : [];
+            const assignmentPath = pathParts.length >= 2 ? `${pathParts[1]}\\${sprint.name}` : sprint.name;
+            return `- ${sprint.name} (ID: ${sprint.id})\n  📍 Assignment Path: "${assignmentPath}"\n  🔗 Full Path: ${sprint.path || 'No path'}`;
+        }).join('\n\n');
         return {
             content: [
                 {
                     type: 'text',
-                    text: `Found ${sprints.length} sprint(s):\n\n${sprintList || 'No sprints found.'}\n\n[DEBUG] Check console for detailed debug information.`
+                    text: `Found ${sprints.length} sprint(s):\n\n${sprintList || 'No sprints found.'}\n\n💡 **Path Format Note**: Use the "Assignment Path" format (ProjectName\\SprintName) when assigning work items to sprints.\n\n[DEBUG] Check console for detailed debug information.`
+                }
+            ]
+        };
+    }
+    async getCurrentSprint(args) {
+        this.ensureInitialized();
+        const { projectId, teamId } = GetCurrentSprintSchema.parse(args);
+        const currentSprint = await this.apiClient.getCurrentSprint(projectId, teamId);
+        if (!currentSprint) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'No current active sprint found.\n\n[DEBUG] Check console for detailed debug information.'
+                    }
+                ]
+            };
+        }
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Current Sprint: ${currentSprint.name}\n\nDetails:\n- ID: ${currentSprint.id}\n- Path: ${currentSprint.path}\n- Structure Type: ${currentSprint.structureType}\n\n[DEBUG] Check console for detailed debug information.`
+                }
+            ]
+        };
+    }
+    async getSprint(args) {
+        this.ensureInitialized();
+        const { sprintId, iterationPath } = GetSprintSchema.parse(args);
+        if (!sprintId && !iterationPath) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Error: Either sprintId or iterationPath must be provided.'
+                    }
+                ]
+            };
+        }
+        const sprint = await this.apiClient.getSprint(sprintId, iterationPath);
+        if (!sprint) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Sprint not found for ID: ${sprintId || 'N/A'}, Path: ${iterationPath || 'N/A'}\n\n[DEBUG] Check console for detailed debug information.`
+                    }
+                ]
+            };
+        }
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Sprint: ${sprint.name}\n\nDetails:\n- ID: ${sprint.id}\n- Path: ${sprint.path}\n- Structure Type: ${sprint.structureType}\n- Has Children: ${sprint.hasChildren}\n\n[DEBUG] Check console for detailed debug information.`
+                }
+            ]
+        };
+    }
+    async getSprintWorkItems(args) {
+        this.ensureInitialized();
+        const { sprintId, iterationPath, workItemTypes, includeCompleted } = GetSprintWorkItemsSchema.parse(args);
+        if (!sprintId && !iterationPath) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Error: Either sprintId or iterationPath must be provided.'
+                    }
+                ]
+            };
+        }
+        const workItems = await this.apiClient.getSprintWorkItems(sprintId, iterationPath, workItemTypes, includeCompleted);
+        const workItemList = workItems.map(wi => `- #${wi.id}: ${wi.title} (${wi.type}, ${wi.state})`).join('\n');
+        const filterInfo = workItemTypes ? `\nFiltered by types: ${workItemTypes.join(', ')}` : '';
+        const completedInfo = includeCompleted ? '' : '\nExcluding completed items';
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Found ${workItems.length} work item(s) in sprint:${filterInfo}${completedInfo}\n\n${workItemList || 'No work items found in this sprint.'}\n\n[DEBUG] Check console for detailed debug information.`
+                }
+            ]
+        };
+    }
+    async assignWorkItemsToSprint(args) {
+        this.ensureInitialized();
+        const { workItemIds, sprintId, iterationPath } = AssignWorkItemsToSprintSchema.parse(args);
+        if (!sprintId && !iterationPath) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Error: Either sprintId or iterationPath must be provided.\n\n💡 Examples:\n- Using sprintId: {"workItemIds": [123, 456], "sprintId": "15"}\n- Using iterationPath: {"workItemIds": [123, 456], "iterationPath": "MyProject\\\\Sprint 1"}\n\n📋 Use get_sprints to see available sprints and their correct path formats.'
+                    }
+                ]
+            };
+        }
+        const results = await this.apiClient.assignWorkItemsToSprint(workItemIds, sprintId, iterationPath);
+        const successCount = results.filter(r => r.success).length;
+        const failureCount = results.filter(r => !r.success).length;
+        const resultText = results.map(r => `- Work Item #${r.workItemId}: ${r.success ? '✅' : '❌'} ${r.message}`).join('\n');
+        // Add detailed error information to the response
+        const debugInfo = results.filter(r => !r.success).map(r => `\n🔍 Work Item #${r.workItemId} Error Details:\n${r.message}`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Assignment Results: ${successCount} successful, ${failureCount} failed\n\n${resultText}${debugInfo}\n\n[DEBUG] Check console for detailed debug information.`
+                }
+            ]
+        };
+    }
+    async removeWorkItemsFromSprint(args) {
+        this.ensureInitialized();
+        const { workItemIds, sprintId } = RemoveWorkItemsFromSprintSchema.parse(args);
+        const results = await this.apiClient.removeWorkItemsFromSprint(workItemIds, sprintId);
+        const successCount = results.filter(r => r.success).length;
+        const failureCount = results.filter(r => !r.success).length;
+        const resultText = results.map(r => `- Work Item #${r.workItemId}: ${r.success ? '✅' : '❌'} ${r.message}`).join('\n');
+        // Add detailed error information to the response
+        const debugInfo = results.filter(r => !r.success).map(r => `\n🔍 Work Item #${r.workItemId} Error Details:\n${r.message}`).join('\n');
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Removal Results: ${successCount} successful, ${failureCount} failed\n\n${resultText}${debugInfo}\n\n[DEBUG] Check console for detailed debug information.`
                 }
             ]
         };
