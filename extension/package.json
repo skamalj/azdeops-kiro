@@ -1,10 +1,9 @@
 {
   "name": "compass",
   "displayName": "Compass",
-  "description": "Navigate your Azure DevOps projects with precision - work items, sprints, scrum dashboard, and intelligent task management",
-  "version": "1.0.0",
+  "description": "Navigate your Azure DevOps projects with precision. Primarily built for Kiro IDE with full VS Code compatibility. Features work items, sprints, scrum dashboard, and intelligent task management.",
+  "version": "1.0.2",
   "icon": "kiro-ext.png",
-
   "publisher": "skamalj",
   "license": "MIT",
   "repository": {
@@ -24,6 +23,9 @@
   ],
   "keywords": [
     "compass",
+    "kiro",
+    "kiro ide",
+    "mcp server",
     "azure",
     "devops",
     "work items",
@@ -34,7 +36,8 @@
     "project management",
     "task management",
     "navigation",
-    "workflow"
+    "workflow",
+    "ai integration"
   ],
   "galleryBanner": {
     "color": "#0078d4",
@@ -290,7 +293,11 @@
         },
         "azureDevOps.effortConversion.preferredUnit": {
           "type": "string",
-          "enum": ["storyPoints", "hours", "auto"],
+          "enum": [
+            "storyPoints",
+            "hours",
+            "auto"
+          ],
           "default": "auto",
           "description": "Preferred unit for mixed effort calculations (auto = use most common unit in sprint)"
         }
