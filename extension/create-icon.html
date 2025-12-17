@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Compass Icon Generator</title>
+</head>
+<body>
+    <canvas id="iconCanvas" width="128" height="128" style="border: 1px solid #ccc;"></canvas>
+    <br><br>
+    <button onclick="downloadIcon()">Download Icon</button>
+    
+    <script>
+        const canvas = document.getElementById('iconCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Create the compass icon
+        function createIcon() {
+            // Clear canvas
+            ctx.clearRect(0, 0, 128, 128);
+            
+            // Background circle with gradient
+            const gradient = ctx.createLinearGradient(0, 0, 128, 128);
+            gradient.addColorStop(0, '#0078d4');
+            gradient.addColorStop(1, '#005a9e');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(64, 64, 60, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Outer ring (compass bezel)
+            ctx.strokeStyle = '#003d6b';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Inner compass face
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(64, 64, 50, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Compass rose - main directions
+            ctx.strokeStyle = '#0078d4';
+            ctx.lineWidth = 3;
+            
+            // North arrow (pointing up)
+            ctx.fillStyle = '#d13438';
+            ctx.beginPath();
+            ctx.moveTo(64, 20);
+            ctx.lineTo(58, 35);
+            ctx.lineTo(64, 30);
+            ctx.lineTo(70, 35);
+            ctx.closePath();
+            ctx.fill();
+            
+            // South arrow (pointing down)
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#0078d4';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(64, 108);
+            ctx.lineTo(58, 93);
+            ctx.lineTo(64, 98);
+            ctx.lineTo(70, 93);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // East and West lines
+            ctx.strokeStyle = '#0078d4';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(20, 64);
+            ctx.lineTo(35, 64);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(93, 64);
+            ctx.lineTo(108, 64);
+            ctx.stroke();
+            
+            // Compass center
+            ctx.fillStyle = '#0078d4';
+            ctx.beginPath();
+            ctx.arc(64, 64, 4, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Direction markers (N, E, S, W)
+            ctx.fillStyle = '#0078d4';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('N', 64, 16);
+            ctx.fillText('S', 64, 120);
+            ctx.fillText('E', 116, 68);
+            ctx.fillText('W', 12, 68);
+            
+            // Degree markings
+            ctx.strokeStyle = '#0078d4';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 12; i++) {
+                const angle = (i * 30) * Math.PI / 180;
+                const x1 = 64 + 45 * Math.cos(angle - Math.PI/2);
+                const y1 = 64 + 45 * Math.sin(angle - Math.PI/2);
+                const x2 = 64 + 40 * Math.cos(angle - Math.PI/2);
+                const y2 = 64 + 40 * Math.sin(angle - Math.PI/2);
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+        }
+        
+        function downloadIcon() {
+            const link = document.createElement('a');
+            link.download = 'icon.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        // Create the icon when page loads
+        createIcon();
+    </script>
+</body>
+</html>

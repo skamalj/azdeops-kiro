@@ -1,21 +1,45 @@
 {
-  "name": "azure-devops-integration",
-  "displayName": "Azure DevOps Integration",
-  "description": "Kiro extension for Azure DevOps integration with intelligent task completion",
+  "name": "compass",
+  "displayName": "Compass",
+  "description": "Navigate your Azure DevOps projects with precision - work items, sprints, scrum dashboard, and intelligent task management",
   "version": "1.0.0",
+  "icon": "kiro-ext.png",
 
-  "publisher": "kiro",
+  "publisher": "skamalj",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kiro/azure-devops-integration.git"
+    "url": "https://github.com/skamalj/compass.git"
+  },
+  "homepage": "https://github.com/skamalj/compass#readme",
+  "bugs": {
+    "url": "https://github.com/skamalj/compass/issues"
   },
   "engines": {
     "vscode": "^1.103.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "SCM Providers"
   ],
+  "keywords": [
+    "compass",
+    "azure",
+    "devops",
+    "work items",
+    "scrum",
+    "agile",
+    "sprint",
+    "dashboard",
+    "project management",
+    "task management",
+    "navigation",
+    "workflow"
+  ],
+  "galleryBanner": {
+    "color": "#0078d4",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished",
     "onCommand:azureDevOps.connect",
@@ -75,6 +99,11 @@
         "command": "azureDevOps.refreshExplorer",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "azureDevOps.selectSprintFilter",
+        "title": "Filter by Sprint",
+        "icon": "$(filter)"
       },
       {
         "command": "azureDevOps.configurePAT",
@@ -154,6 +183,11 @@
           "command": "azureDevOps.refreshExplorer",
           "when": "view == azureDevOpsExplorer",
           "group": "navigation"
+        },
+        {
+          "command": "azureDevOps.selectSprintFilter",
+          "when": "view == azureDevOpsExplorer",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -181,6 +215,11 @@
           "command": "azureDevOps.viewTask",
           "when": "view == azureDevOpsExplorer && (viewItem == task || viewItem == userstory || viewItem == epic || viewItem == issue || viewItem == productbacklogitem || viewItem == feature)",
           "group": "2_view"
+        },
+        {
+          "command": "azureDevOps.selectSprintFilter",
+          "when": "view == azureDevOpsExplorer && viewItem == sprintFilter",
+          "group": "inline"
         }
       ],
       "commandPalette": [

@@ -40,6 +40,20 @@ export class SectionTreeItem extends AzureDevOpsTreeItem {
     }
 }
 
+// Sprint filter tree item
+export class SprintFilterTreeItem extends AzureDevOpsTreeItem {
+    constructor(
+        public readonly filterLabel: string,
+        public readonly currentFilter: string
+    ) {
+        super(filterLabel, vscode.TreeItemCollapsibleState.None, 'info');
+        this.contextValue = 'sprintFilter';
+        this.iconPath = new vscode.ThemeIcon('filter');
+        this.description = 'Click to change sprint filter';
+        this.tooltip = `Current filter: ${currentFilter === 'all' ? 'All Sprints' : currentFilter}`;
+    }
+}
+
 // Project tree item
 export class ProjectTreeItem extends AzureDevOpsTreeItem {
     constructor(
@@ -205,6 +219,8 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
     private projects: Project[] = [];
     private testPlans: TestPlan[] = [];
     private testCases: Map<number, TestCase[]> = new Map(); // testPlanId -> testCases
+    private selectedSprintFilter: string = 'all'; // 'all' or specific sprint path
+    private availableSprints: { id: string, name: string, path: string }[] = [];
 
     constructor(
         private apiClient: AzureDevOpsApiClient,
@@ -221,8 +237,31 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
         // Only load work items if the API client is ready
         if (this.apiClient.isReady()) {
             this.loadWorkItems();
+            this.loadAvailableSprints();
         }
         this._onDidChangeTreeData.fire();
+    }
+
+    /**
+     * Set sprint filter and refresh the view
+     */
+    setSprintFilter(sprintFilter: string): void {
+        this.selectedSprintFilter = sprintFilter;
+        this.refresh();
+    }
+
+    /**
+     * Get current sprint filter
+     */
+    getSprintFilter(): string {
+        return this.selectedSprintFilter;
+    }
+
+    /**
+     * Get available sprints for filtering
+     */
+    getAvailableSprints(): { id: string, name: string, path: string }[] {
+        return this.availableSprints;
     }
 
     getTreeItem(element: AzureDevOpsTreeItem): vscode.TreeItem {
@@ -323,8 +362,18 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
         }
     }
 
-    private async getWorkItemSectionChildren(): Promise<WorkItemTreeItem[]> {
+    private async getWorkItemSectionChildren(): Promise<AzureDevOpsTreeItem[]> {
         await this.loadWorkItems();
+        
+        const items: AzureDevOpsTreeItem[] = [];
+        
+        // Add sprint filter header
+        const sprintFilterLabel = this.selectedSprintFilter === 'all' 
+            ? 'Sprint: All Sprints' 
+            : `Sprint: ${this.selectedSprintFilter.split('\\').pop() || 'Unknown'}`;
+        
+        const sprintFilterItem = new SprintFilterTreeItem(sprintFilterLabel, this.selectedSprintFilter);
+        items.push(sprintFilterItem);
         
         // Get all root-level items (items without parents)
         const rootItems: WorkItemTreeItem[] = [];
@@ -338,27 +387,27 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
             ));
         });
         
+        items.push(...rootItems);
+        
         if (rootItems.length === 0) {
-            return [
-                new WorkItemTreeItem(
-                    {
-                        id: 0,
-                        title: 'No work items found',
-                        type: 'Info',
-                        state: 'Empty',
-                        description: 'Create your first work item using the command palette',
-                        assignedTo: '',
-                        createdDate: new Date(),
-                        changedDate: new Date(),
-                        projectId: '',
-                        tags: []
-                    },
-                    vscode.TreeItemCollapsibleState.None
-                )
-            ];
+            items.push(new WorkItemTreeItem(
+                {
+                    id: 0,
+                    title: 'No work items found',
+                    type: 'Info',
+                    state: 'Empty',
+                    description: 'Create your first work item using the command palette',
+                    assignedTo: '',
+                    createdDate: new Date(),
+                    changedDate: new Date(),
+                    projectId: '',
+                    tags: []
+                },
+                vscode.TreeItemCollapsibleState.None
+            ));
         }
         
-        return rootItems;
+        return items;
     }
 
     private async getTestPlanSectionChildren(): Promise<TestPlanTreeItem[]> {
@@ -400,10 +449,87 @@ export class AzureDevOpsExplorerProvider implements vscode.TreeDataProvider<Azur
         );
     }
 
+    /**
+     * Load available sprints for the current project
+     */
+    private async loadAvailableSprints(): Promise<void> {
+        try {
+            const currentProject = this.projectManager.getCurrentProject();
+            if (!currentProject) {
+                this.availableSprints = [];
+                return;
+            }
+
+            // Get sprints using classification nodes API
+            const response = await fetch(
+                `${this.apiClient.getBaseUrl()}/_apis/wit/classificationnodes/iterations?api-version=7.0&$depth=2`,
+                {
+                    headers: {
+                        'Authorization': this.apiClient.getAuthHeader() || '',
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                console.error('Failed to get sprints:', response.status, response.statusText);
+                this.availableSprints = [];
+                return;
+            }
+
+            const data = await response.json();
+            const sprints: { id: string, name: string, path: string }[] = [];
+
+            // Parse the classification nodes to extract sprints
+            if (data.children) {
+                data.children.forEach((child: any) => {
+                    sprints.push({
+                        id: child.id.toString(),
+                        name: child.name,
+                        path: child.path
+                    });
+                });
+            }
+
+            this.availableSprints = sprints;
+            console.log(`[UI] Loaded ${sprints.length} available sprints:`, sprints.map(s => s.name));
+        } catch (error) {
+            console.error('Error loading available sprints:', error);
+            this.availableSprints = [];
+        }
+    }
+
     private async loadWorkItems(): Promise<void> {
         try {
             // Get all work items - don't filter by type, get everything
-            const allWorkItems = await this.apiClient.getWorkItems({});
+            let allWorkItems = await this.apiClient.getWorkItems({});
+            
+            // Filter by sprint if a specific sprint is selected
+            if (this.selectedSprintFilter !== 'all') {
+                const currentProject = this.projectManager.getCurrentProject();
+                if (currentProject) {
+                    // Convert sprint path to assignment format
+                    const sprintName = this.selectedSprintFilter.split('\\').pop() || '';
+                    const assignmentPath = `${currentProject.name}\\${sprintName}`;
+                    
+                    console.log(`[UI] Filtering work items by sprint: ${assignmentPath}`);
+                    
+                    // Filter work items by iteration path
+                    allWorkItems = allWorkItems.filter(wi => {
+                        const iterationPath = wi.fields?.['System.IterationPath'] || '';
+                        const pathsToCheck = [
+                            assignmentPath, // "ProjectName\SprintName"
+                            `\\${assignmentPath}`, // "\ProjectName\SprintName"
+                            `\\${currentProject.name}\\Iteration\\${sprintName}`, // "\ProjectName\Iteration\SprintName"
+                            `${currentProject.name}\\Iteration\\${sprintName}` // "ProjectName\Iteration\SprintName"
+                        ];
+                        
+                        return pathsToCheck.some(path => iterationPath === path);
+                    });
+                    
+                    console.log(`[UI] Filtered to ${allWorkItems.length} work items for sprint ${sprintName}`);
+                }
+            }
             
             // Build parent-child hierarchy based on actual parentId relationships
             this.workItems = allWorkItems;

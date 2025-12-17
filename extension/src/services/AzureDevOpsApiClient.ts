@@ -109,6 +109,13 @@ export class AzureDevOpsApiClient implements AzureDevOpsClient {
   }
 
   /**
+   * Get authentication header for API calls
+   */
+  getAuthHeader(): string | null {
+    return this.authService.getAuthHeader();
+  }
+
+  /**
    * Get work items based on query
    */
   async getWorkItems(query: WorkItemQuery): Promise<WorkItem[]> {

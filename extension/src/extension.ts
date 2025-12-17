@@ -381,6 +381,42 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error('Error in selectProjectFromTree command:', error);
                 vscode.window.showErrorMessage(`Select project failed: ${error}`);
             }
+        }),
+
+        // Sprint filter command
+        vscode.commands.registerCommand('azureDevOps.selectSprintFilter', async () => {
+            try {
+                const availableSprints = explorerProvider.getAvailableSprints();
+                const currentFilter = explorerProvider.getSprintFilter();
+                
+                // Create quick pick items
+                const quickPickItems = [
+                    {
+                        label: 'All Sprints',
+                        description: currentFilter === 'all' ? '(Current)' : '',
+                        value: 'all'
+                    },
+                    ...availableSprints.map(sprint => ({
+                        label: sprint.name,
+                        description: currentFilter === sprint.path ? '(Current)' : '',
+                        value: sprint.path
+                    }))
+                ];
+                
+                const selected = await vscode.window.showQuickPick(quickPickItems, {
+                    placeHolder: 'Select sprint to filter work items',
+                    title: 'Sprint Filter'
+                });
+                
+                if (selected) {
+                    explorerProvider.setSprintFilter(selected.value);
+                    const displayName = selected.value === 'all' ? 'All Sprints' : selected.label;
+                    vscode.window.showInformationMessage(`Work items filtered by: ${displayName}`);
+                }
+            } catch (error) {
+                console.error('Error in selectSprintFilter command:', error);
+                vscode.window.showErrorMessage(`Sprint filter failed: ${error}`);
+            }
         })
     ];
 

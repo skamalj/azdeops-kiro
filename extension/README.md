@@ -1,33 +1,116 @@
-# Azure DevOps Integration Extension
+# Compass
 
-A VS Code/Kiro extension that provides seamless Azure DevOps work item management directly within the IDE.
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://marketplace.visualstudio.com/items?itemName=skamalj.compass)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## Features
+🧭 **Navigate your Azure DevOps projects with precision**
 
-### ✅ Implemented
-- **Authentication**: Personal Access Token (PAT) support with VS Code settings integration
-- **User Stories**: Create, view, edit user stories with story points selection
-- **Tasks**: Create independent tasks or link to parent user stories
-- **Tree View**: Hierarchical display in VS Code Activity Bar
-- **Command Palette**: Full integration with VS Code commands (Ctrl+Shift+P)
-- **Context Menus**: Right-click actions on work items
-- **Real-time Sync**: Immediate updates with Azure DevOps
-- **Error Handling**: Comprehensive error handling with user-friendly messages
+Compass is a comprehensive VS Code extension that brings Azure DevOps work item management, sprint planning, and scrum dashboard directly into your development environment. Like a navigator's compass, it helps you find direction in complex projects and keeps your team on course.
 
-### 🚧 Future Enhancements
-- **Task Intelligence**: Automatic task analysis and completion
-- **Offline Sync**: Local caching and offline operation queuing
-- **Advanced Scrum**: Sprint management and workflow automation
+## 🚀 Features
 
-## Installation
+### **Work Item Management**
+- ✅ **Complete CRUD Operations**: Create, read, update, and delete work items
+- ✅ **Multi-Project Support**: Switch between Azure DevOps projects seamlessly  
+- ✅ **Hierarchical View**: Parent-child relationships with expandable tree structure
+- ✅ **Sprint Filtering**: Filter work items by sprint with "All Sprints" default
+- ✅ **Real-time Sync**: Immediate updates with Azure DevOps backend
+
+### **Scrum & Agile Tools**
+- ✅ **Sprint Dashboard**: Interactive dashboard with real sprint data
+- ✅ **Burndown Charts**: Visual progress tracking with actual vs. ideal burndown
+- ✅ **Team Velocity**: Historical velocity tracking and trend analysis
+- ✅ **Mixed Effort Support**: Handles story points, hours, and count-based metrics
+- ✅ **Work Item Matrix**: Type vs. State analysis with effort totals
+
+### **Test Management**
+- ✅ **Test Plans**: Create and manage test plans
+- ✅ **Test Cases**: Create test cases with detailed steps
+- ✅ **Test Execution**: Execute tests and record results
+- ✅ **Batch Operations**: Bulk creation of test cases and plans
+
+### **Developer Experience**
+- ✅ **VS Code Integration**: Native tree view in Activity Bar
+- ✅ **Command Palette**: Full command integration (Ctrl+Shift+P)
+- ✅ **Context Menus**: Right-click actions on all items
+- ✅ **Status Bar**: Connection status and active project display
+- ✅ **Settings Integration**: Configuration through VS Code settings
+
+### **Advanced Features**
+- ✅ **MCP Server**: Model Context Protocol server for AI integration
+- ✅ **Batch Operations**: Bulk creation of work items, test cases, and plans
+- ✅ **Effort Conversion**: Configurable ratios between story points and hours
+- ✅ **Process Template Support**: Works with Basic, Agile, Scrum, and CMMI templates
+
+## 📦 Installation
+
+### From VS Code Marketplace
+1. Open VS Code
+2. Go to Extensions (Ctrl+Shift+X)
+3. Search for "Compass"
+4. Click Install
 
 ### From VSIX Package
-1. Locate the `azure-devops-integration-1.0.0.vsix` file
+1. Download the latest `.vsix` file from releases
 2. In VS Code: `Extensions` → `...` → `Install from VSIX...`
 3. Select the VSIX file and install
 
-### From Source
-1. Install dependencies: `npm install`
+## 🚀 Quick Start
+
+### 1. Connect to Azure DevOps
+```
+Ctrl+Shift+P → "Compass: Connect to Organization"
+```
+- Enter your Azure DevOps organization URL
+- Provide your Personal Access Token (PAT)
+- Select your project
+
+### 2. View Work Items
+- Open the Compass panel in the Activity Bar
+- Browse work items by project and sprint
+- Use the sprint filter to focus on specific iterations
+
+### 3. Create Work Items
+```
+Ctrl+Shift+P → "Azure DevOps: Create User Story"
+Ctrl+Shift+P → "Azure DevOps: Create Task"
+```
+
+### 4. Open Scrum Dashboard
+```
+Ctrl+Shift+P → "Azure DevOps: Show Scrum Dashboard"
+```
+
+## ⚙️ Configuration
+
+Configure the extension through VS Code settings:
+
+```json
+{
+  "azureDevOps.organizationUrl": "https://dev.azure.com/yourorg",
+  "azureDevOps.projectName": "YourProject",
+  "azureDevOps.personalAccessToken": "your-pat-token",
+  "azureDevOps.effortConversion.storyPointsToHours": 8,
+  "azureDevOps.effortConversion.preferredUnit": "auto"
+}
+```
+
+## 🎯 Usage Examples
+
+### Sprint Planning
+1. Use the sprint filter to view work items by iteration
+2. Open the scrum dashboard to see sprint progress
+3. Create new work items and assign to sprints
+
+### Test Management
+1. Create test plans for your features
+2. Add test cases with detailed steps
+3. Execute tests and record results
+
+### Team Collaboration
+1. View work item assignments by team member
+2. Track team velocity across sprints
+3. Monitor burndown progress in real-time
 2. Compile: `npm run compile`
 3. Package: `npx vsce package`
 4. Install the generated VSIX file
