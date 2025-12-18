@@ -2,17 +2,17 @@
   "name": "compass",
   "displayName": "Compass",
   "description": "Navigate your Azure DevOps projects with precision. Primarily built for Kiro IDE with full VS Code compatibility. Features work items, sprints, scrum dashboard, and intelligent task management.",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "icon": "kiro-ext.png",
   "publisher": "skamalj",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/skamalj/compass.git"
+    "url": "https://github.com/skamalj/azdeops-kiro.git"
   },
-  "homepage": "https://github.com/skamalj/compass#readme",
+  "homepage": "https://github.com/skamalj/azdeops-kiro#readme",
   "bugs": {
-    "url": "https://github.com/skamalj/compass/issues"
+    "url": "https://github.com/skamalj/azdeops-kiro/issues"
   },
   "engines": {
     "vscode": "^1.103.0"
@@ -44,11 +44,7 @@
     "theme": "dark"
   },
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:azureDevOps.connect",
-    "onCommand:azureDevOps.createUserStory",
-    "onCommand:azureDevOps.createTask",
-    "onView:azureDevOpsExplorer"
+    "*"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -300,6 +296,18 @@
           ],
           "default": "auto",
           "description": "Preferred unit for mixed effort calculations (auto = use most common unit in sprint)"
+        },
+        "azureDevOps.mcpServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MCP server for AI integration"
+        },
+        "azureDevOps.mcpServer.port": {
+          "type": "number",
+          "default": 3001,
+          "description": "Port for MCP HTTP server",
+          "minimum": 1024,
+          "maximum": 65535
         }
       }
     }
@@ -308,15 +316,17 @@
     "vscode:prepublish": "npm run compile && npm run bundle-mcp",
     "compile": "tsc -p ./",
     "bundle-mcp": "npm run install-mcp-deps && npm run compile-mcp",
-    "install-mcp-deps": "cd mcp-server && npm install",
-    "compile-mcp": "cd mcp-server && npx tsc index.ts --target es2022 --module commonjs --moduleResolution node",
+    "install-mcp-deps": "cd mcp-server && npm install --production",
+    "compile-mcp": "cd mcp-server && npx tsc index.ts --target es2022 --module commonjs --moduleResolution node --esModuleInterop",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "package": "npm run vscode:prepublish && vsce package",
+    "publish": "npm run vscode:prepublish && vsce publish"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

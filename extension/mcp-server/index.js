@@ -1916,9 +1916,81 @@ class AzureDevOpsCoreServer {
         };
     }
     async run() {
-        const transport = new stdio_js_1.StdioServerTransport();
-        await this.server.connect(transport);
-        console.error('Azure DevOps Core MCP server running on stdio');
+        try {
+            // Check command line arguments for HTTP mode
+            const args = process.argv.slice(2);
+            const httpIndex = args.indexOf('--http');
+            console.error('MCP Server starting with args:', args);
+            if (httpIndex !== -1 && args[httpIndex + 1]) {
+                // HTTP mode
+                const port = parseInt(args[httpIndex + 1], 10);
+                console.error(`Starting in HTTP mode on port ${port}`);
+                await this.runHttpServer(port);
+            }
+            else {
+                // stdio mode (default)
+                console.error('Starting in stdio mode');
+                const transport = new stdio_js_1.StdioServerTransport();
+                await this.server.connect(transport);
+                console.error('Azure DevOps Core MCP server running on stdio');
+            }
+        }
+        catch (error) {
+            console.error('MCP Server failed to start:', error);
+            process.exit(1);
+        }
+    }
+    async runHttpServer(port) {
+        try {
+            console.error(`Starting HTTP server on port ${port}...`);
+            // Try to require express
+            let express;
+            try {
+                express = require('express');
+            }
+            catch (error) {
+                console.error('Express not found, installing...');
+                throw new Error('Express dependency not available. Please run: npm install express');
+            }
+            const app = express();
+            app.use(express.json());
+            // Health check endpoint (simple, no MCP dependency)
+            app.get('/health', (req, res) => {
+                res.json({
+                    status: 'healthy',
+                    server: 'azure-devops-core',
+                    version: '1.0.0',
+                    mode: 'http',
+                    timestamp: new Date().toISOString()
+                });
+            });
+            // Basic info endpoint
+            app.get('/', (req, res) => {
+                res.json({
+                    name: 'Azure DevOps Core MCP Server',
+                    version: '1.0.0',
+                    endpoints: {
+                        health: '/health',
+                        info: '/'
+                    }
+                });
+            });
+            // Start the server
+            const server = app.listen(port, () => {
+                console.error(`✅ Azure DevOps Core MCP server running on HTTP port ${port}`);
+                console.error(`🔗 Health check: http://localhost:${port}/health`);
+                console.error(`📋 Info: http://localhost:${port}/`);
+            });
+            // Handle server errors
+            server.on('error', (error) => {
+                console.error('HTTP server error:', error);
+                throw error;
+            });
+        }
+        catch (error) {
+            console.error('Failed to start HTTP server:', error);
+            throw error;
+        }
     }
 }
 exports.AzureDevOpsCoreServer = AzureDevOpsCoreServer;

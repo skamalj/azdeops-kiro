@@ -85,7 +85,9 @@ async function attemptAutoConnection() {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('=== Azure DevOps Integration extension ACTIVATION STARTED ===');
+    // VERY FIRST THING - show we're alive
+    vscode.window.showInformationMessage('🚨 COMPASS EXTENSION ACTIVATE FUNCTION CALLED!');
+    console.log('=== COMPASS EXTENSION ACTIVATION STARTED ===');
     
     // Show immediate activation message
     vscode.window.showInformationMessage('Azure DevOps Extension Activating...');
@@ -459,11 +461,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Start MCP Server
         console.log('Starting MCP Server...');
+        vscode.window.showInformationMessage('🧭 Compass extension activated - starting MCP server...');
+        
         try {
             await mcpServerService.startMCPServer();
             console.log('MCP Server started successfully');
         } catch (error) {
             console.error('Failed to start MCP Server:', error);
+            vscode.window.showErrorMessage(`Failed to start MCP Server: ${error}`);
             // Don't fail extension activation if MCP server fails
         }
 
