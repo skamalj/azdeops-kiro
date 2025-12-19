@@ -54,61 +54,22 @@ export class MCPServerService {
       console.log('Starting MCP Server at:', mcpServerPath);
       console.log('MCP Server will listen on port:', this.port);
       
-      // Check if MCP server file exists
+      // Check if MCP server file exists (should be pre-built by vscode:prepublish)
       const fs = require('fs');
       if (!fs.existsSync(mcpServerPath)) {
-        throw new Error(`MCP Server file not found at: ${mcpServerPath}`);
+        throw new Error(`MCP Server file not found at: ${mcpServerPath}. Extension may not be properly packaged.`);
       }
       console.log('MCP Server file exists:', mcpServerPath);
       
-      // Check if node_modules exists in mcp-server directory
+      // Check if dependencies exist (should be pre-installed by vscode:prepublish)
       const mcpServerDir = path.join(extensionPath, 'mcp-server');
       const nodeModulesPath = path.join(mcpServerDir, 'node_modules');
       
       if (!fs.existsSync(nodeModulesPath)) {
-        console.log('Installing MCP server dependencies...');
-        vscode.window.showInformationMessage('Installing MCP server dependencies...', 'Installing');
-        
-        // Install dependencies
-        const { execSync } = require('child_process');
-        try {
-          console.log('Running npm install in:', mcpServerDir);
-          execSync('npm install', { 
-            cwd: mcpServerDir, 
-            stdio: 'inherit',
-            timeout: 60000 // 60 second timeout
-          });
-          console.log('MCP server dependencies installed successfully');
-          vscode.window.showInformationMessage('✅ MCP server dependencies installed successfully');
-        } catch (installError) {
-          console.error('Failed to install dependencies:', installError);
-          throw new Error(`Failed to install MCP server dependencies: ${installError}`);
-        }
+        throw new Error(`MCP Server dependencies not found at: ${nodeModulesPath}. Extension may not be properly packaged. Please reinstall the extension.`);
       }
-
-      // Verify critical dependencies exist
-      const criticalDeps = [
-        '@modelcontextprotocol/sdk',
-        'express'
-      ];
       
-      for (const dep of criticalDeps) {
-        const depPath = path.join(nodeModulesPath, dep);
-        if (!fs.existsSync(depPath)) {
-          console.log(`Missing critical dependency: ${dep}, attempting to install...`);
-          const { execSync } = require('child_process');
-          try {
-            execSync(`npm install ${dep}`, { 
-              cwd: mcpServerDir, 
-              stdio: 'inherit',
-              timeout: 30000
-            });
-            console.log(`Successfully installed ${dep}`);
-          } catch (depError) {
-            throw new Error(`Failed to install critical dependency ${dep}: ${depError}`);
-          }
-        }
-      }
+      console.log('MCP Server dependencies found:', nodeModulesPath);
 
       // Start the MCP server process with HTTP server mode
       this.mcpProcess = cp.spawn('node', [mcpServerPath, '--http', this.port.toString()], {
@@ -153,19 +114,16 @@ export class MCPServerService {
         // Show detailed error message
         let errorDetails = error.message;
         if (error.message.includes('MODULE_NOT_FOUND')) {
-          errorDetails = 'Missing dependencies. The extension will attempt to install them automatically on next start.';
+          errorDetails = 'Missing dependencies. Please reinstall the extension.';
         }
         
         vscode.window.showErrorMessage(
           `❌ MCP Server failed to start: ${errorDetails}`,
           'Check Settings',
-          'Reinstall Dependencies',
           'View Logs'
         ).then(selection => {
           if (selection === 'Check Settings') {
             vscode.commands.executeCommand('workbench.action.openSettings', 'azureDevOps.mcpServer');
-          } else if (selection === 'Reinstall Dependencies') {
-            this.reinstallDependencies();
           } else if (selection === 'View Logs') {
             vscode.commands.executeCommand('workbench.action.toggleDevTools');
           }
@@ -227,40 +185,7 @@ export class MCPServerService {
     return this.isRunning;
   }
 
-  private async reinstallDependencies(): Promise<void> {
-    try {
-      const extension = vscode.extensions.getExtension('skamalj.compass');
-      if (!extension) {
-        throw new Error('Could not find extension');
-      }
 
-      const mcpServerDir = path.join(extension.extensionPath, 'mcp-server');
-      const nodeModulesPath = path.join(mcpServerDir, 'node_modules');
-      
-      // Remove existing node_modules
-      const fs = require('fs');
-      if (fs.existsSync(nodeModulesPath)) {
-        console.log('Removing existing node_modules...');
-        fs.rmSync(nodeModulesPath, { recursive: true, force: true });
-      }
-      
-      // Reinstall dependencies
-      vscode.window.showInformationMessage('🔄 Reinstalling MCP server dependencies...');
-      
-      const { execSync } = require('child_process');
-      execSync('npm install', { 
-        cwd: mcpServerDir, 
-        stdio: 'inherit',
-        timeout: 120000 // 2 minute timeout
-      });
-      
-      vscode.window.showInformationMessage('✅ Dependencies reinstalled successfully. Please restart the extension.');
-      
-    } catch (error) {
-      console.error('Failed to reinstall dependencies:', error);
-      vscode.window.showErrorMessage(`Failed to reinstall dependencies: ${error}`);
-    }
-  }
 
   dispose(): void {
     this.stop();

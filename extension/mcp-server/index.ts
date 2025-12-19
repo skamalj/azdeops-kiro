@@ -2331,20 +2331,233 @@ export class AzureDevOpsCoreServer {
           version: '1.0.0',
           endpoints: {
             health: '/health',
-            info: '/'
+            info: '/',
+            mcp: '/mcp'
           }
         });
       });
 
-      // Start the server
-      const server = app.listen(port, () => {
+      // MCP JSON-RPC endpoint for GitHub Copilot
+      app.post('/mcp', async (req: any, res: any) => {
+        try {
+          const request = req.body;
+          console.error('Received MCP request:', JSON.stringify(request, null, 2));
+          
+          // Handle MCP requests
+          let response;
+          
+          if (request.method === 'tools/list') {
+            // Handle list tools request directly
+            const tools = [
+              {
+                name: 'create_user_story',
+                description: 'Create a new user story in Azure DevOps',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string', description: 'User story title' },
+                    description: { type: 'string', description: 'Detailed description' },
+                    storyPoints: { type: 'number', description: 'Story points (1-21)', minimum: 1, maximum: 21 },
+                  },
+                  required: ['title'],
+                },
+              },
+              {
+                name: 'create_task',
+                description: 'Create a new task in Azure DevOps',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string', description: 'Task title' },
+                    description: { type: 'string', description: 'Detailed description' },
+                    remainingWork: { type: 'number', description: 'Remaining work in hours', minimum: 0 },
+                    parentId: { type: 'number', description: 'Parent user story ID (optional)' },
+                  },
+                  required: ['title'],
+                },
+              },
+              {
+                name: 'get_work_items',
+                description: 'Retrieve work items from Azure DevOps',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', enum: ['User Story', 'Task', 'Bug', 'Feature'] },
+                    state: { type: 'string', description: 'Work item state' },
+                    assignedTo: { type: 'string', description: 'Assigned user' },
+                    maxResults: { type: 'number', minimum: 1, maximum: 200, default: 50 },
+                  },
+                },
+              },
+              {
+                name: 'update_work_item',
+                description: 'Update an existing work item',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number', description: 'Work item ID' },
+                    updates: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          op: { type: 'string', enum: ['add', 'replace', 'remove'] },
+                          path: { type: 'string' },
+                          value: {},
+                        },
+                        required: ['op', 'path'],
+                      },
+                    },
+                  },
+                  required: ['id', 'updates'],
+                },
+              },
+              {
+                name: 'get_work_item',
+                description: 'Get a specific work item by ID',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number', description: 'Work item ID' },
+                  },
+                  required: ['id'],
+                },
+              },
+              {
+                name: 'get_projects',
+                description: 'Get accessible projects in the organization',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    organizationUrl: { type: 'string', description: 'Organization URL (optional)' },
+                  },
+                },
+              },
+              {
+                name: 'switch_project',
+                description: 'Switch to a different project',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    projectId: { type: 'string', description: 'Project ID' },
+                    projectName: { type: 'string', description: 'Project name' },
+                  },
+                  required: ['projectId', 'projectName'],
+                },
+              },
+              {
+                name: 'get_sprints',
+                description: 'Get all sprints/iterations',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    projectId: { type: 'string', description: 'Project ID (optional)' },
+                    teamId: { type: 'string', description: 'Team ID (optional)' },
+                    state: { type: 'string', enum: ['current', 'future', 'closed'], description: 'Sprint state filter' },
+                  },
+                },
+              },
+              {
+                name: 'assign_work_items_to_sprint',
+                description: 'Assign work items to a sprint',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    workItemIds: { type: 'array', items: { type: 'number' }, description: 'Work item IDs to assign' },
+                    sprintId: { type: 'string', description: 'Sprint ID (preferred method)' },
+                    iterationPath: { type: 'string', description: 'Iteration path in format: ProjectName\\SprintName' },
+                  },
+                  required: ['workItemIds'],
+                },
+              }
+            ];
+            
+            response = {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: { tools }
+            };
+          } else if (request.method === 'tools/call') {
+            // Handle tool call request directly
+            const { name, arguments: args } = request.params;
+            
+            let toolResult;
+            switch (name) {
+              case 'create_user_story':
+                toolResult = await this.createUserStory(args);
+                break;
+              case 'create_task':
+                toolResult = await this.createTask(args);
+                break;
+              case 'get_work_items':
+                toolResult = await this.getWorkItems(args);
+                break;
+              case 'update_work_item':
+                toolResult = await this.updateWorkItem(args);
+                break;
+              case 'get_work_item':
+                toolResult = await this.getWorkItem(args);
+                break;
+              case 'get_projects':
+                toolResult = await this.getProjects(args);
+                break;
+              case 'switch_project':
+                toolResult = await this.switchProject(args);
+                break;
+              case 'get_sprints':
+                toolResult = await this.getSprints(args);
+                break;
+              case 'assign_work_items_to_sprint':
+                toolResult = await this.assignWorkItemsToSprint(args);
+                break;
+              default:
+                throw new Error(`Unknown tool: ${name}`);
+            }
+            
+            response = {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: toolResult
+            };
+          } else {
+            // Unknown method
+            response = {
+              jsonrpc: '2.0',
+              id: request.id,
+              error: {
+                code: -32601,
+                message: `Method not found: ${request.method}`
+              }
+            };
+          }
+          
+          console.error('Sending MCP response:', JSON.stringify(response, null, 2));
+          res.json(response);
+          
+        } catch (error) {
+          console.error('MCP request error:', error);
+          res.status(500).json({
+            jsonrpc: '2.0',
+            id: req.body?.id || null,
+            error: {
+              code: -32603,
+              message: 'Internal error',
+              data: error instanceof Error ? error.message : 'Unknown error'
+            }
+          });
+        }
+      });
+
+      // Start the HTTP server
+      const httpServer = app.listen(port, () => {
         console.error(`✅ Azure DevOps Core MCP server running on HTTP port ${port}`);
         console.error(`🔗 Health check: http://localhost:${port}/health`);
         console.error(`📋 Info: http://localhost:${port}/`);
+        console.error(`🔌 MCP HTTP endpoint: http://localhost:${port}/mcp`);
       });
 
       // Handle server errors
-      server.on('error', (error: any) => {
+      httpServer.on('error', (error: any) => {
         console.error('HTTP server error:', error);
         throw error;
       });

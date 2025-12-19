@@ -2,7 +2,7 @@
   "name": "compass",
   "displayName": "Compass",
   "description": "Navigate your Azure DevOps projects with precision. Primarily built for Kiro IDE with full VS Code compatibility. Features work items, sprints, scrum dashboard, and intelligent task management.",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "icon": "kiro-ext.png",
   "publisher": "skamalj",
   "license": "MIT",
