@@ -26,7 +26,12 @@
         "delete_sprint",
         "get_sprints",
         "assign_work_items_to_sprint",
-        "get_sprint_work_items"
+        "get_sprint_work_items",
+        "create_sprint",
+        "update_sprint",
+        "get_current_sprint",
+        "get_sprint",
+        "add_sprint_to_team"
       ]
     }
   }

@@ -44,7 +44,29 @@
     "theme": "dark"
   },
   "activationEvents": [
-    "*"
+    "onCommand:azureDevOps.connect",
+    "onCommand:azureDevOps.disconnect", 
+    "onCommand:azureDevOps.selectTask",
+    "onCommand:azureDevOps.completeTask",
+    "onCommand:azureDevOps.createUserStory",
+    "onCommand:azureDevOps.createTask",
+    "onCommand:azureDevOps.syncWorkItems",
+    "onCommand:azureDevOps.showMyTasks",
+    "onCommand:azureDevOps.searchWorkItems",
+    "onCommand:azureDevOps.refreshExplorer",
+    "onCommand:azureDevOps.selectSprintFilter",
+    "onCommand:azureDevOps.configurePAT",
+    "onCommand:azureDevOps.testCreateStory",
+    "onCommand:azureDevOps.diagnostics",
+    "onCommand:azureDevOps.test",
+    "onCommand:azureDevOps.selectProject",
+    "onCommand:azureDevOps.createTestCase",
+    "onCommand:azureDevOps.createTestPlan",
+    "onCommand:azureDevOps.executeTestCase",
+    "onCommand:azureDevOps.showScrumDashboard",
+    "onCommand:azureDevOps.selectProjectFromTree",
+    "onView:azureDevOpsExplorer",
+    "onView:azureDevOpsConnection"
   ],
   "main": "./dist/extension.js",
   "contributes": {

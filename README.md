@@ -1,168 +1,183 @@
-# Azure DevOps Integration for Kiro
+# Compass - Azure DevOps for Kiro IDE
 
-A comprehensive Azure DevOps integration solution for Kiro IDE, providing seamless work item management and development workflow automation.
+[![Version](https://img.shields.io/badge/version-1.0.6-blue.svg)](https://marketplace.visualstudio.com/items?itemName=skamalj.compass)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Kiro IDE](https://img.shields.io/badge/Built%20for-Kiro%20IDE-blue.svg)](https://kiro.ai)
 
-## Project Structure
+🧭 **Navigate Azure DevOps with natural language in Kiro IDE**
 
-This repository contains two complementary Azure DevOps integration solutions:
+Compass transforms how you work with Azure DevOps by combining traditional UI with **AI-powered natural language commands**. Built specifically for Kiro IDE, it lets you manage work items, sprints, and projects using conversational AI while providing a comprehensive visual interface.
 
-### 🔌 Extension (`/extension/`)
-A native VS Code/Kiro extension that provides:
-- **Work Item Management**: Create, read, update user stories and tasks
-- **Tree View Integration**: Hierarchical display in VS Code Activity Bar
-- **Command Palette**: Full command integration with VS Code
-- **Settings Integration**: Configuration via VS Code settings
-- **Real-time Sync**: Immediate updates with Azure DevOps
+## 🤖 **Natural Language Azure DevOps with Kiro**
 
-**Status**: ✅ Complete and functional
-**Installation**: Install the `.vsix` file in VS Code/Kiro
+Talk to your Azure DevOps projects naturally:
 
-### ⚡ Power (`/power/`)
-A Kiro Power that provides the same functionality through MCP servers:
-- **MCP Server Integration**: Azure DevOps operations via Model Context Protocol
-- **Kiro Powers Framework**: Native Kiro Powers experience
-- **Same Commands**: Create stories, tasks, updates, etc.
-- **Distributed Architecture**: References external MCP server
-
-**Status**: ✅ Complete and functional
-
-### 🖥️ MCP Server (`/mcp-server/`)
-Standalone MCP server for Azure DevOps integration:
-- **Independent Server**: Can be used with any MCP-compatible client
-- **Core Functionality**: Work item CRUD operations
-- **GitHub Integration**: Referenced directly by the Kiro Power
-- **TypeScript**: Modern TypeScript implementation
-
-**Status**: ✅ Complete and functional
-
-### 📚 Shared (`/shared/`)
-Common utilities and types shared between extension and power:
-- **TypeScript Types**: Shared interfaces and data models
-- **Utility Functions**: Common helper functions
-- **Constants**: Shared configuration and constants
-
-## Features
-
-### Core Functionality
-- ✅ **Authentication**: Personal Access Token (PAT) support
-- ✅ **User Stories**: Create, view, edit user stories with story points
-- ✅ **Tasks**: Create independent tasks or link to parent stories
-- ✅ **Hierarchical Structure**: Support for parent-child work item relationships
-- ✅ **Real-time Updates**: Immediate synchronization with Azure DevOps
-- ✅ **Error Handling**: Comprehensive error handling with user-friendly messages
-
-### Advanced Features (Extension)
-- ✅ **Tree View**: Hierarchical display of work items
-- ✅ **Context Menus**: Right-click actions on work items
-- ✅ **Quick Pick**: Native VS Code selection interfaces
-- ✅ **Status Bar**: Connection status and active task display
-- ✅ **Settings UI**: Configuration through VS Code settings
-
-### Advanced Features (Power - Planned)
-- 🚧 **MCP Integration**: Native Kiro Powers experience
-- 🚧 **Distributed Servers**: Separate MCP servers for different operations
-- 🚧 **Power Documentation**: Comprehensive POWER.md documentation
-- 🚧 **Steering Files**: Guided workflows and usage patterns
-
-## Getting Started
-
-### Extension Installation
-1. Navigate to `/extension/`
-2. Install dependencies: `npm install`
-3. Build: `npm run compile`
-4. Package: `npx vsce package`
-5. Install the generated `.vsix` file in VS Code/Kiro
-
-### Power Installation (Coming Soon)
-1. Navigate to `/power/`
-2. Follow Kiro Powers installation guide
-3. Configure MCP servers as needed
-
-## Configuration
-
-### Azure DevOps Setup
-1. Create a Personal Access Token (PAT) in Azure DevOps
-2. Ensure PAT has "Work Items (Read & Write)" permissions
-3. Configure organization URL and project name
-
-### Extension Configuration
-Configure via VS Code Settings:
-- `azureDevOps.organizationUrl`: Your Azure DevOps organization URL
-- `azureDevOps.projectName`: Target project name
-- `azureDevOps.personalAccessToken`: Your PAT token
-
-### Power Configuration (Coming Soon)
-Configure via Kiro Powers settings and MCP server configuration.
-
-## Development
-
-### Extension Development
-```bash
-cd extension/
-npm install
-npm run compile
-npm run test
+### **Work Item Management**
+```
+"Create a user story called 'User Authentication' for the login team"
+"List all pending work items in Sprint 5"  
+"Update task #123 to mark it as completed"
+"Show me all bugs assigned to John in the current sprint"
 ```
 
-### Power Development (Coming Soon)
-```bash
-cd power/
-npm install
-npm run build
-npm run test
+### **Sprint Planning**
+```
+"Create Sprint 6 from Jan 15 to Jan 29 for the backend team"
+"What work items are in the current sprint?"
+"Move work items 45, 67, and 89 to Sprint 7"
+"Show me the sprint timeline and dates"
 ```
 
-## Testing
-
-The project includes comprehensive testing:
-- **Property-based Tests**: 13 tests with 100+ iterations each
-- **Unit Tests**: Comprehensive coverage of all components
-- **Integration Tests**: End-to-end workflow testing
-
-Run tests:
-```bash
-# Extension tests
-cd extension/
-npm test
-
-# Power tests (coming soon)
-cd power/
-npm test
+### **Project Insights**
+```
+"Switch to the PartsUnlimited project"
+"What projects do I have access to?"
+"Show me the scrum dashboard for current sprint"
+"Create a test plan for the authentication feature"
 ```
 
-## Architecture
+### **Batch Operations**
+```
+"Create 5 user stories for the shopping cart feature"
+"Generate test cases for the payment workflow"
+"Update all tasks in Sprint 4 to mark them as done"
+```
 
-### Extension Architecture
-- **Authentication Layer**: PAT authentication with secure storage
-- **API Client**: Azure DevOps REST API with rate limiting
-- **UI Layer**: Native VS Code integration
-- **Command Layer**: VS Code command palette integration
+## 🎯 **Dual Experience: AI + Visual Interface**
 
-### Power Architecture (Planned)
-- **MCP Servers**: Distributed servers for different operations
-- **Power Framework**: Native Kiro Powers integration
-- **Shared Services**: Common authentication and API services
+### **🤖 AI-Powered (Kiro IDE)**
+- **Natural language commands** for all Azure DevOps operations
+- **Intelligent task completion** with context awareness
+- **Conversational project management** 
+- **Smart sprint planning** with date validation
+- **Automated team assignments** and dashboard visibility
 
-## Contributing
+### **🖥️ Visual Interface (Kiro + VS Code)**
+- **Interactive work item tree** with sprint filtering
+- **Scrum dashboard** with burndown charts and velocity tracking
+- **Context menus** for quick actions
+- **Real-time synchronization** with Azure DevOps
+- **Multi-project support** with seamless switching
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+## 🚀 **Quick Setup**
 
-## License
+### **For Kiro IDE (Recommended)**
 
-MIT License - see LICENSE file for details
+#### 1. Install Extension
+Install Compass from the VS Code Marketplace or Kiro IDE extensions.
 
-## Support
+#### 2. Set Environment Variables
+```bash
+# Required for AI integration
+export AZURE_DEVOPS_ORG_URL="https://dev.azure.com/yourorg"
+export AZURE_DEVOPS_PROJECT="YourDefaultProject"  
+export AZURE_DEVOPS_PAT="your-personal-access-token"
+```
 
-For issues and questions:
-1. Check the documentation in each component's directory
-2. Review the specification documents in `.kiro/specs/`
-3. Create an issue in the GitHub repository
+#### 3. Install Kiro Power (Optional - Enhanced AI)
+```
+1. Open Kiro IDE
+2. Install Power from: https://github.com/skamalj/azdeops-kiro/tree/main/power
+3. Enjoy enhanced AI capabilities with work items and sprints
+```
+
+#### 4. Start Using Natural Language
+```
+"List work items in azdevops project"
+"Create a sprint called 'Q1 Release' from Feb 1 to Feb 14 for the dev team"
+"Show me all pending tasks"
+```
+
+### **For VS Code**
+
+#### 1. Install Extension
+Install Compass from the VS Code Marketplace.
+
+#### 2. Configure Settings
+```json
+{
+  "azureDevOps.organizationUrl": "https://dev.azure.com/yourorg",
+  "azureDevOps.projectName": "YourProject",
+  "azureDevOps.personalAccessToken": "your-pat-token"
+}
+```
+
+#### 3. Connect
+```
+Ctrl+Shift+P → "Compass: Connect to Organization"
+```
+
+## 🔑 **Personal Access Token Setup**
+
+1. Go to Azure DevOps → User Settings → Personal Access Tokens
+2. Create new token with these permissions:
+   - **Work Items**: Read & Write
+   - **Project and Team**: Read
+   - **Test Management**: Read & Write (optional)
+3. Copy the token and use in environment variable or settings
+
+## ✨ **Key Features**
+
+### **🎯 Sprint Management**
+- Create sprints with automatic team assignment
+- View sprint timelines with start/end dates
+- Assign work items to sprints conversationally
+- Dashboard visibility for all team sprints
+
+### **📋 Work Item Operations**
+- Full CRUD operations via natural language
+- Hierarchical relationships (epics → stories → tasks)
+- Batch creation and updates
+- Real-time synchronization
+
+### **📊 Analytics & Reporting**
+- Interactive scrum dashboard
+- Burndown charts with actual vs. ideal progress
+- Team velocity tracking
+- Work item distribution analysis
+
+### **🧪 Test Management**
+- Test plan creation and management
+- Test case authoring with detailed steps
+- Test execution and result recording
+- Batch test operations
+
+## 🔧 **Advanced Configuration**
+
+### **MCP Server Settings (Kiro IDE)**
+```bash
+# Optional: Customize MCP server port
+export MCP_SERVER_PORT=3001
+
+# Optional: Enable debug logging
+export FASTMCP_LOG_LEVEL=DEBUG
+```
+
+### **Extension Settings (VS Code)**
+```json
+{
+  "azureDevOps.autoSync": true,
+  "azureDevOps.syncInterval": 300,
+  "azureDevOps.effortConversion.storyPointsToHours": 8,
+  "azureDevOps.mcpServer.enabled": true,
+  "azureDevOps.mcpServer.port": 3001
+}
+```
+
+## 🎯 **Why Compass?**
+
+- **🤖 AI-First**: Natural language interface for Azure DevOps
+- **🚀 Productivity**: Reduce clicks, increase conversation
+- **🎯 Kiro Optimized**: Built specifically for Kiro IDE workflows
+- **🔄 Dual Mode**: AI + traditional UI for maximum flexibility
+- **⚡ Real-time**: Instant synchronization with Azure DevOps
+- **🎨 Modern**: Clean, intuitive interface design
+
+## 📝 **License**
+
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Note**: This project provides two different approaches to Azure DevOps integration for Kiro IDE. Choose the extension for immediate VS Code compatibility or the power for native Kiro Powers experience.
+**Built with ❤️ for the Kiro IDE community**
+

@@ -106,6 +106,36 @@ const RemoveWorkItemsFromSprintSchema = zod_1.z.object({
     workItemIds: zod_1.z.array(zod_1.z.number().int().positive()),
     sprintId: zod_1.z.string().optional(),
 });
+// Sprint CRUD schemas
+const CreateSprintSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1, 'Sprint name is required'),
+    startDate: zod_1.z.string().min(1, 'Start date is required (ISO format: YYYY-MM-DD)'),
+    endDate: zod_1.z.string().min(1, 'End date is required (ISO format: YYYY-MM-DD)'),
+    teamName: zod_1.z.string().min(1, 'Team name is required'),
+    projectId: zod_1.z.string().optional(),
+    description: zod_1.z.string().optional(),
+});
+const UpdateSprintSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().min(1, 'Sprint ID is required'),
+    name: zod_1.z.string().optional(),
+    startDate: zod_1.z.string().min(1, 'Start date is required (ISO format: YYYY-MM-DD)'),
+    endDate: zod_1.z.string().min(1, 'End date is required (ISO format: YYYY-MM-DD)'),
+    description: zod_1.z.string().optional(),
+});
+const DeleteSprintSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().min(1, 'Sprint ID is required'),
+});
+// Team sprint management schemas
+const AddSprintToTeamSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().min(1, 'Sprint ID is required'),
+    teamName: zod_1.z.string().optional(),
+    projectId: zod_1.z.string().optional(),
+});
+const RemoveSprintFromTeamSchema = zod_1.z.object({
+    sprintId: zod_1.z.string().min(1, 'Sprint ID is required'),
+    teamName: zod_1.z.string().optional(),
+    projectId: zod_1.z.string().optional(),
+});
 // Batch operation schemas
 const BatchCreateUserStoriesSchema = zod_1.z.object({
     stories: zod_1.z.array(zod_1.z.object({
@@ -537,8 +567,10 @@ class AzureDevOpsApiClient {
                 if (data.children) {
                     data.children.forEach((child) => {
                         console.log(`[DEBUG] Found child iteration: ${child.name}`);
+                        console.log(`[DEBUG] Child attributes:`, JSON.stringify(child.attributes, null, 2));
                         iterations.push({
                             id: child.id,
+                            identifier: child.identifier || child.id, // Store both for API calls
                             name: child.name,
                             path: child.path,
                             url: child.url,
@@ -925,6 +957,236 @@ class AzureDevOpsApiClient {
                     success: false,
                     message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
                 }];
+        }
+    }
+    // Sprint CRUD Methods
+    async createSprint(name, startDate, endDate, teamName, projectId, description) {
+        const projectToUse = projectId || this.projectName;
+        console.log(`[DEBUG] Creating sprint: ${name} for project: ${projectToUse} and team: ${teamName}`);
+        try {
+            const sprintData = {
+                name: name,
+                attributes: {
+                    startDate: startDate + 'T00:00:00.000Z',
+                    finishDate: endDate + 'T23:59:59.999Z'
+                }
+            };
+            // Add description if provided
+            if (description) {
+                sprintData.description = description;
+            }
+            const url = `${this.organizationUrl}/${projectToUse}/_apis/wit/classificationnodes/iterations?api-version=7.0`;
+            console.log(`[DEBUG] Create sprint URL: ${url}`);
+            console.log(`[DEBUG] Create sprint data:`, JSON.stringify(sprintData, null, 2));
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(sprintData)
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[DEBUG] Failed to create sprint: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`Failed to create sprint: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            const data = await response.json();
+            console.log(`[DEBUG] Sprint created successfully:`, JSON.stringify(data, null, 2));
+            // Automatically add sprint to team settings for dashboard visibility
+            try {
+                console.log(`[DEBUG] Adding sprint to team: ${teamName}`);
+                await this.addSprintToTeam(data.id.toString(), teamName, projectId);
+                console.log(`[DEBUG] Sprint successfully added to team: ${teamName}`);
+                // Add team info to response
+                data.teamName = teamName;
+                data.addedToTeam = true;
+            }
+            catch (teamError) {
+                console.error(`[DEBUG] Failed to add sprint to team: ${teamError}`);
+                // Don't fail the entire operation, but note the issue
+                data.teamName = teamName;
+                data.addedToTeam = false;
+                data.teamError = teamError instanceof Error ? teamError.message : 'Unknown team error';
+            }
+            return data;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error creating sprint:', error);
+            throw error;
+        }
+    }
+    async updateSprint(sprintId, name, startDate, endDate, description) {
+        console.log(`[DEBUG] Updating sprint: ${sprintId}`);
+        try {
+            // First, get the current sprint to find its identifier
+            const allSprints = await this.getSprints();
+            const sprint = allSprints.find(s => s.id === sprintId || s.id === parseInt(sprintId));
+            if (!sprint) {
+                throw new Error(`Sprint with ID ${sprintId} not found`);
+            }
+            console.log(`[DEBUG] Found sprint to update:`, JSON.stringify(sprint, null, 2));
+            // Build the update data object (not patch operations)
+            const updateData = {};
+            if (name) {
+                updateData.name = name;
+            }
+            // Always include attributes if we're updating dates
+            if (startDate || endDate) {
+                updateData.attributes = {};
+                if (startDate) {
+                    updateData.attributes.startDate = startDate + 'T00:00:00.000Z';
+                }
+                if (endDate) {
+                    updateData.attributes.finishDate = endDate + 'T23:59:59.999Z';
+                }
+            }
+            if (description !== undefined) {
+                updateData.description = description;
+            }
+            if (Object.keys(updateData).length === 0) {
+                throw new Error('No updates provided');
+            }
+            // Use the sprint's name in the URL path instead of GUID
+            const sprintName = encodeURIComponent(sprint.name);
+            const url = `${this.organizationUrl}/${this.projectName}/_apis/wit/classificationnodes/iterations/${sprintName}?api-version=7.0`;
+            console.log(`[DEBUG] Update sprint URL: ${url}`);
+            console.log(`[DEBUG] Update data:`, JSON.stringify(updateData, null, 2));
+            const response = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(updateData)
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[DEBUG] Failed to update sprint: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`Failed to update sprint: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            const data = await response.json();
+            console.log(`[DEBUG] Sprint updated successfully:`, JSON.stringify(data, null, 2));
+            return data;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error updating sprint:', error);
+            throw error;
+        }
+    }
+    async deleteSprint(sprintId) {
+        console.log(`[DEBUG] Deleting sprint: ${sprintId}`);
+        try {
+            // First, get the current sprint to find its identifier
+            const allSprints = await this.getSprints();
+            const sprint = allSprints.find(s => s.id === sprintId || s.id === parseInt(sprintId));
+            if (!sprint) {
+                throw new Error(`Sprint with ID ${sprintId} not found`);
+            }
+            console.log(`[DEBUG] Found sprint to delete:`, JSON.stringify(sprint, null, 2));
+            // Use the sprint's name in the URL path instead of GUID
+            const sprintName = encodeURIComponent(sprint.name);
+            const url = `${this.organizationUrl}/${this.projectName}/_apis/wit/classificationnodes/iterations/${sprintName}?api-version=7.0`;
+            console.log(`[DEBUG] Delete sprint URL: ${url}`);
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[DEBUG] Failed to delete sprint: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`Failed to delete sprint: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            console.log(`[DEBUG] Sprint deleted successfully: ${sprintId}`);
+            return { success: true, message: `Sprint ${sprint.name} deleted successfully` };
+        }
+        catch (error) {
+            console.error('[DEBUG] Error deleting sprint:', error);
+            throw error;
+        }
+    }
+    // Team Sprint Management Methods
+    async addSprintToTeam(sprintId, teamName, projectId) {
+        const projectToUse = projectId || this.projectName;
+        const teamToUse = teamName || `${projectToUse} Team`;
+        console.log(`[DEBUG] Adding sprint ${sprintId} to team ${teamToUse} in project ${projectToUse}`);
+        try {
+            // First, get the sprint details to get its path/identifier
+            const allSprints = await this.getSprints();
+            const sprint = allSprints.find(s => s.id === sprintId || s.id === parseInt(sprintId));
+            if (!sprint) {
+                throw new Error(`Sprint with ID ${sprintId} not found`);
+            }
+            console.log(`[DEBUG] Found sprint to add to team:`, JSON.stringify(sprint, null, 2));
+            // Add sprint to team settings
+            const teamSprintData = {
+                id: sprint.identifier || sprint.id,
+                name: sprint.name,
+                path: sprint.path,
+                url: sprint.url
+            };
+            const url = `${this.organizationUrl}/${projectToUse}/${teamToUse}/_apis/work/teamsettings/iterations?api-version=7.0`;
+            console.log(`[DEBUG] Add sprint to team URL: ${url}`);
+            console.log(`[DEBUG] Team sprint data:`, JSON.stringify(teamSprintData, null, 2));
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(teamSprintData)
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[DEBUG] Failed to add sprint to team: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`Failed to add sprint to team: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            const data = await response.json();
+            console.log(`[DEBUG] Sprint added to team successfully:`, JSON.stringify(data, null, 2));
+            return data;
+        }
+        catch (error) {
+            console.error('[DEBUG] Error adding sprint to team:', error);
+            throw error;
+        }
+    }
+    async removeSprintFromTeam(sprintId, teamName, projectId) {
+        const projectToUse = projectId || this.projectName;
+        const teamToUse = teamName || `${projectToUse} Team`;
+        console.log(`[DEBUG] Removing sprint ${sprintId} from team ${teamToUse} in project ${projectToUse}`);
+        try {
+            // First, get the sprint details
+            const allSprints = await this.getSprints();
+            const sprint = allSprints.find(s => s.id === sprintId || s.id === parseInt(sprintId));
+            if (!sprint) {
+                throw new Error(`Sprint with ID ${sprintId} not found`);
+            }
+            console.log(`[DEBUG] Found sprint to remove from team:`, JSON.stringify(sprint, null, 2));
+            // Remove sprint from team settings
+            const sprintIdentifier = sprint.identifier || sprint.id;
+            const url = `${this.organizationUrl}/${projectToUse}/${teamToUse}/_apis/work/teamsettings/iterations/${sprintIdentifier}?api-version=7.0`;
+            console.log(`[DEBUG] Remove sprint from team URL: ${url}`);
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`[DEBUG] Failed to remove sprint from team: ${response.status} ${response.statusText} - ${errorText}`);
+                throw new Error(`Failed to remove sprint from team: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            console.log(`[DEBUG] Sprint removed from team successfully: ${sprintId}`);
+            return { success: true, message: `Sprint ${sprint.name} removed from team ${teamToUse} successfully` };
+        }
+        catch (error) {
+            console.error('[DEBUG] Error removing sprint from team:', error);
+            throw error;
         }
     }
 }
@@ -1317,6 +1579,74 @@ class AzureDevOpsCoreServer {
                             required: ['workItemIds'],
                         },
                     },
+                    {
+                        name: 'create_sprint',
+                        description: 'Create a new sprint/iteration with start and end dates',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Sprint name' },
+                                startDate: { type: 'string', description: 'Start date (ISO format: YYYY-MM-DD)' },
+                                endDate: { type: 'string', description: 'End date (ISO format: YYYY-MM-DD)' },
+                                teamName: { type: 'string', description: 'Team name (e.g., "azdevops-kiro Team")' },
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                                description: { type: 'string', description: 'Sprint description (optional)' },
+                            },
+                            required: ['name', 'startDate', 'endDate', 'teamName'],
+                        },
+                    },
+                    {
+                        name: 'update_sprint',
+                        description: 'Update an existing sprint/iteration',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                                name: { type: 'string', description: 'Sprint name (optional)' },
+                                startDate: { type: 'string', description: 'Start date (ISO format: YYYY-MM-DD)' },
+                                endDate: { type: 'string', description: 'End date (ISO format: YYYY-MM-DD)' },
+                                description: { type: 'string', description: 'Sprint description (optional)' },
+                            },
+                            required: ['sprintId', 'startDate', 'endDate'],
+                        },
+                    },
+                    {
+                        name: 'delete_sprint',
+                        description: 'Delete a sprint/iteration',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                            },
+                            required: ['sprintId'],
+                        },
+                    },
+                    {
+                        name: 'add_sprint_to_team',
+                        description: 'Add a sprint to team settings (makes it visible on dashboard)',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                                teamName: { type: 'string', description: 'Team name (optional, defaults to project team)' },
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                            },
+                            required: ['sprintId'],
+                        },
+                    },
+                    {
+                        name: 'remove_sprint_from_team',
+                        description: 'Remove a sprint from team settings (hides it from dashboard)',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                sprintId: { type: 'string', description: 'Sprint ID' },
+                                teamName: { type: 'string', description: 'Team name (optional, defaults to project team)' },
+                                projectId: { type: 'string', description: 'Project ID (optional)' },
+                            },
+                            required: ['sprintId'],
+                        },
+                    },
                 ],
             };
         });
@@ -1368,6 +1698,16 @@ class AzureDevOpsCoreServer {
                         return await this.assignWorkItemsToSprint(args);
                     case 'remove_work_items_from_sprint':
                         return await this.removeWorkItemsFromSprint(args);
+                    case 'create_sprint':
+                        return await this.createSprint(args);
+                    case 'update_sprint':
+                        return await this.updateSprint(args);
+                    case 'delete_sprint':
+                        return await this.deleteSprint(args);
+                    case 'add_sprint_to_team':
+                        return await this.addSprintToTeam(args);
+                    case 'remove_sprint_from_team':
+                        return await this.removeSprintFromTeam(args);
                     default:
                         throw new Error(`Unknown tool: ${name}`);
                 }
@@ -1776,7 +2116,10 @@ class AzureDevOpsCoreServer {
             // Extract the correct iteration path format for assignment
             const pathParts = sprint.path ? sprint.path.split('\\') : [];
             const assignmentPath = pathParts.length >= 2 ? `${pathParts[1]}\\${sprint.name}` : sprint.name;
-            return `- ${sprint.name} (ID: ${sprint.id})\n  📍 Assignment Path: "${assignmentPath}"\n  🔗 Full Path: ${sprint.path || 'No path'}`;
+            // Extract date information from attributes
+            const startDate = sprint.attributes?.startDate ? new Date(sprint.attributes.startDate).toISOString().split('T')[0] : 'Not set';
+            const endDate = sprint.attributes?.finishDate ? new Date(sprint.attributes.finishDate).toISOString().split('T')[0] : 'Not set';
+            return `- ${sprint.name} (ID: ${sprint.id})\n  📅 Start: ${startDate} | End: ${endDate}\n  📍 Assignment Path: "${assignmentPath}"\n  🔗 Full Path: ${sprint.path || 'No path'}`;
         }).join('\n\n');
         return {
             content: [
@@ -1805,7 +2148,7 @@ class AzureDevOpsCoreServer {
             content: [
                 {
                     type: 'text',
-                    text: `Current Sprint: ${currentSprint.name}\n\nDetails:\n- ID: ${currentSprint.id}\n- Path: ${currentSprint.path}\n- Structure Type: ${currentSprint.structureType}\n\n[DEBUG] Check console for detailed debug information.`
+                    text: `Current Sprint: ${currentSprint.name}\n\nDetails:\n- ID: ${currentSprint.id}\n- Start Date: ${currentSprint.attributes?.startDate ? new Date(currentSprint.attributes.startDate).toISOString().split('T')[0] : 'Not set'}\n- End Date: ${currentSprint.attributes?.finishDate ? new Date(currentSprint.attributes.finishDate).toISOString().split('T')[0] : 'Not set'}\n- Path: ${currentSprint.path}\n- Structure Type: ${currentSprint.structureType}\n\n[DEBUG] Check console for detailed debug information.`
                 }
             ]
         };
@@ -1838,7 +2181,7 @@ class AzureDevOpsCoreServer {
             content: [
                 {
                     type: 'text',
-                    text: `Sprint: ${sprint.name}\n\nDetails:\n- ID: ${sprint.id}\n- Path: ${sprint.path}\n- Structure Type: ${sprint.structureType}\n- Has Children: ${sprint.hasChildren}\n\n[DEBUG] Check console for detailed debug information.`
+                    text: `Sprint: ${sprint.name}\n\nDetails:\n- ID: ${sprint.id}\n- Start Date: ${sprint.attributes?.startDate ? new Date(sprint.attributes.startDate).toISOString().split('T')[0] : 'Not set'}\n- End Date: ${sprint.attributes?.finishDate ? new Date(sprint.attributes.finishDate).toISOString().split('T')[0] : 'Not set'}\n- Path: ${sprint.path}\n- Structure Type: ${sprint.structureType}\n- Has Children: ${sprint.hasChildren}\n\n[DEBUG] Check console for detailed debug information.`
                 }
             ]
         };
@@ -1915,6 +2258,74 @@ class AzureDevOpsCoreServer {
             ]
         };
     }
+    async createSprint(args) {
+        this.ensureInitialized();
+        const { name, startDate, endDate, teamName, projectId, description } = CreateSprintSchema.parse(args);
+        const sprint = await this.apiClient.createSprint(name, startDate, endDate, teamName, projectId, description);
+        const teamStatus = sprint.addedToTeam
+            ? `✅ Added to team: ${sprint.teamName}`
+            : `⚠️ Created but failed to add to team: ${sprint.teamError || 'Unknown error'}`;
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Created Sprint: ${sprint.name}\n\nDetails:\n- ID: ${sprint.id}\n- Name: ${sprint.name}\n- Start Date: ${sprint.attributes?.startDate || 'Not set'}\n- End Date: ${sprint.attributes?.finishDate || 'Not set'}\n- Path: ${sprint.path}\n- Team: ${teamStatus}\n- Description: ${sprint.description || 'No description'}\n\n${sprint.addedToTeam ? '🎯 Sprint is now visible on the team dashboard!' : '⚠️ You may need to manually add this sprint to team settings.'}`
+                }
+            ]
+        };
+    }
+    async updateSprint(args) {
+        this.ensureInitialized();
+        const { sprintId, name, startDate, endDate, description } = UpdateSprintSchema.parse(args);
+        const sprint = await this.apiClient.updateSprint(sprintId, name, startDate, endDate, description);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Updated Sprint: ${sprint.name}\n\nDetails:\n- ID: ${sprint.id}\n- Name: ${sprint.name}\n- Start Date: ${sprint.attributes?.startDate || 'Not set'}\n- End Date: ${sprint.attributes?.finishDate || 'Not set'}\n- Path: ${sprint.path}\n- Description: ${sprint.description || 'No description'}`
+                }
+            ]
+        };
+    }
+    async deleteSprint(args) {
+        this.ensureInitialized();
+        const { sprintId } = DeleteSprintSchema.parse(args);
+        const result = await this.apiClient.deleteSprint(sprintId);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ ${result.message}`
+                }
+            ]
+        };
+    }
+    async addSprintToTeam(args) {
+        this.ensureInitialized();
+        const { sprintId, teamName, projectId } = AddSprintToTeamSchema.parse(args);
+        const result = await this.apiClient.addSprintToTeam(sprintId, teamName, projectId);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ Added Sprint to Team: ${result.name}\n\nDetails:\n- Sprint: ${result.name}\n- Team: ${teamName || 'Default team'}\n- Project: ${projectId || 'Current project'}\n- Path: ${result.path}\n\nThe sprint should now be visible on the team dashboard.`
+                }
+            ]
+        };
+    }
+    async removeSprintFromTeam(args) {
+        this.ensureInitialized();
+        const { sprintId, teamName, projectId } = RemoveSprintFromTeamSchema.parse(args);
+        const result = await this.apiClient.removeSprintFromTeam(sprintId, teamName, projectId);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `✅ ${result.message}`
+                }
+            ]
+        };
+    }
     async run() {
         try {
             // Check command line arguments for HTTP mode
@@ -1983,7 +2394,24 @@ class AzureDevOpsCoreServer {
                     console.error('Received MCP request:', JSON.stringify(request, null, 2));
                     // Handle MCP requests
                     let response;
-                    if (request.method === 'tools/list') {
+                    if (request.method === 'initialize') {
+                        // Handle initialize request
+                        response = {
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            result: {
+                                protocolVersion: '2024-11-05',
+                                capabilities: {
+                                    tools: {}
+                                },
+                                serverInfo: {
+                                    name: 'azure-devops-core',
+                                    version: '1.0.0'
+                                }
+                            }
+                        };
+                    }
+                    else if (request.method === 'tools/list') {
                         // Handle list tools request directly
                         const tools = [
                             {
@@ -2106,6 +2534,74 @@ class AzureDevOpsCoreServer {
                                     },
                                     required: ['workItemIds'],
                                 },
+                            },
+                            {
+                                name: 'create_sprint',
+                                description: 'Create a new sprint/iteration with start and end dates',
+                                inputSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        name: { type: 'string', description: 'Sprint name' },
+                                        startDate: { type: 'string', description: 'Start date (ISO format: YYYY-MM-DD)' },
+                                        endDate: { type: 'string', description: 'End date (ISO format: YYYY-MM-DD)' },
+                                        teamName: { type: 'string', description: 'Team name (e.g., "azdevops-kiro Team")' },
+                                        projectId: { type: 'string', description: 'Project ID (optional)' },
+                                        description: { type: 'string', description: 'Sprint description (optional)' },
+                                    },
+                                    required: ['name', 'startDate', 'endDate', 'teamName'],
+                                },
+                            },
+                            {
+                                name: 'update_sprint',
+                                description: 'Update an existing sprint/iteration',
+                                inputSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        sprintId: { type: 'string', description: 'Sprint ID' },
+                                        name: { type: 'string', description: 'Sprint name (optional)' },
+                                        startDate: { type: 'string', description: 'Start date (ISO format: YYYY-MM-DD)' },
+                                        endDate: { type: 'string', description: 'End date (ISO format: YYYY-MM-DD)' },
+                                        description: { type: 'string', description: 'Sprint description (optional)' },
+                                    },
+                                    required: ['sprintId', 'startDate', 'endDate'],
+                                },
+                            },
+                            {
+                                name: 'delete_sprint',
+                                description: 'Delete a sprint/iteration',
+                                inputSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        sprintId: { type: 'string', description: 'Sprint ID' },
+                                    },
+                                    required: ['sprintId'],
+                                },
+                            },
+                            {
+                                name: 'add_sprint_to_team',
+                                description: 'Add a sprint to team settings (makes it visible on dashboard)',
+                                inputSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        sprintId: { type: 'string', description: 'Sprint ID' },
+                                        teamName: { type: 'string', description: 'Team name (optional, defaults to project team)' },
+                                        projectId: { type: 'string', description: 'Project ID (optional)' },
+                                    },
+                                    required: ['sprintId'],
+                                },
+                            },
+                            {
+                                name: 'remove_sprint_from_team',
+                                description: 'Remove a sprint from team settings (hides it from dashboard)',
+                                inputSchema: {
+                                    type: 'object',
+                                    properties: {
+                                        sprintId: { type: 'string', description: 'Sprint ID' },
+                                        teamName: { type: 'string', description: 'Team name (optional, defaults to project team)' },
+                                        projectId: { type: 'string', description: 'Project ID (optional)' },
+                                    },
+                                    required: ['sprintId'],
+                                },
                             }
                         ];
                         response = {
@@ -2145,6 +2641,21 @@ class AzureDevOpsCoreServer {
                                 break;
                             case 'assign_work_items_to_sprint':
                                 toolResult = await this.assignWorkItemsToSprint(args);
+                                break;
+                            case 'create_sprint':
+                                toolResult = await this.createSprint(args);
+                                break;
+                            case 'update_sprint':
+                                toolResult = await this.updateSprint(args);
+                                break;
+                            case 'delete_sprint':
+                                toolResult = await this.deleteSprint(args);
+                                break;
+                            case 'add_sprint_to_team':
+                                toolResult = await this.addSprintToTeam(args);
+                                break;
+                            case 'remove_sprint_from_team':
+                                toolResult = await this.removeSprintFromTeam(args);
                                 break;
                             default:
                                 throw new Error(`Unknown tool: ${name}`);
